@@ -41,7 +41,8 @@ from web.sso import TicketError, TicketVerifier  # noqa: E402
 from web.compose import register_compose_routes  # noqa: E402
 from web.jobs import JobQueue  # noqa: E402
 from web.specs import (  # noqa: E402
-    SpecError, builder_preview, photo_options, prepare_fill, prepare_photo, prepare_reconcile,
+    SpecError, asset_options, builder_preview, photo_options, prepare_asset, prepare_asset_plan, prepare_fill,
+    prepare_photo, prepare_reconcile,
 )
 
 STATIC_DIR = WEB_DIR / "static"
@@ -245,6 +246,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         llm_opts = prompt_llm_options()
         out: dict[str, Any] = {
             "photo": photo_options(),
+            "assets": asset_options(),
             "builder": groups,
             "llms": llm_opts, "ui": ui,
             "app_labels": {"graphical_studio": "Graphical Studio", **addons.REGISTRY.web.get("app_labels", {})},
@@ -338,6 +340,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "photo": prepare_photo,
             "reconcile": lambda b, _r: prepare_reconcile(b),
             "fill": lambda b, _r: prepare_fill(b),
+            "asset_plan": lambda b, _r: prepare_asset_plan(b),
+            "asset": prepare_asset,
             **(addons.REGISTRY.web.get("job_preparers") or {}),
         }
         if kind not in preparers:
@@ -385,6 +389,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if kind not in allowed_kinds:
             return JSONResponse({"detail": f"kind must be {' or '.join(allowed_kinds)}"}, status_code=400)
         return JSONResponse({"items": _media_rows(kind)})
+
+    @app.get("/api/media/exports")
+    def media_exports(rel: str) -> Response:
+        """An asset's size exports (PNG sizes + .ico) as one zip, built in memory."""
+        import io
+        import zipfile
+
+        path = _resolve_under(OUTPUTS_DIR, rel)
+        if not path or studio_library.kind_of(path) != "asset":
+            return JSONResponse({"detail": "Not found"}, status_code=404)
+        folder = Path(os.path.splitext(path)[0] + "_sizes")
+        files = sorted(f for f in folder.iterdir() if f.is_file() and not f.is_symlink()) if folder.is_dir() else []
+        if not files:
+            return JSONResponse({"detail": "This asset has no size exports"}, status_code=404)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for f in files[:64]:
+                z.write(f, f.name)
+        name = f"{folder.name}.zip"
+        return Response(buf.getvalue(), media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/api/library/recipe")
     def library_recipe(rel: str) -> Response:

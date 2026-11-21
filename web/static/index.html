@@ -24,7 +24,43 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="photo" role="tab">Photo</button>
         <button class="tab" data-tab="builder" role="tab">Prompt Builder</button>
+        <button class="tab" data-tab="asset" role="tab">Asset Studio</button>
       </nav>
+
+      <form id="asset-form" class="tabpane" data-pane="asset" hidden>
+        <label>Brief <span class="help">One line about the icon, wallpaper, texture or sprite you want.</span>
+          <textarea name="brief" rows="3" maxlength="1000" required placeholder="App icon for a budgeting app: friendly piggy bank, flat, teal"></textarea></label>
+        <div class="row">
+          <label>Kind <select name="asset_kind"><option value="auto">Detect from the brief</option></select></label>
+          <label>Helper model <select name="llm"></select></label>
+        </div>
+        <div class="row"><button type="submit">Plan it</button><span class="form-msg"></span></div>
+        <div id="asset-plan" hidden>
+          <h3>Fields <span class="help">Edit any of them, then re-plan.</span></h3>
+          <div id="asset-fields" class="grid-fields"></div>
+          <label>Concept <textarea name="concept" rows="2" maxlength="1000"></textarea></label>
+          <div class="row"><button type="button" id="asset-replan" class="ghost">Re-plan from these fields</button></div>
+          <h3>Render</h3>
+          <div class="row">
+            <label>Model <select name="model"></select></label>
+            <label>Width <input name="width" type="number" min="256" max="2048" step="16"></label>
+            <label>Height <input name="height" type="number" min="256" max="2048" step="16"></label>
+            <label>Steps <input name="steps" type="number" min="1" max="80"></label>
+            <label>Seed <input name="seed" type="number" min="0"></label>
+          </div>
+          <div class="row">
+            <label>Background removal <select name="remove_bg"><option>none</option><option>general</option><option>anime</option></select></label>
+            <label>Tiling <select name="tile"><option>none</option><option>both</option><option>x</option></select></label>
+            <label>Pixel grid <input name="pixelate" type="number" min="0" max="64"></label>
+            <label>Final size <input name="final_size" maxlength="20" placeholder="e.g. 512x512"></label>
+            <label>Icon sizes <input name="export_sizes" maxlength="80" placeholder="16,32,48,256"></label>
+          </div>
+          <label>Prompt <textarea name="prompt" rows="4" maxlength="4000"></textarea></label>
+          <label>Negative <textarea name="negative" rows="2" maxlength="2000"></textarea></label>
+          <ul id="asset-reasons" class="muted small"></ul>
+          <div class="row"><button type="button" id="asset-generate">Generate</button><span class="form-msg" id="asset-gen-msg"></span></div>
+        </div>
+      </form>
 
       <form id="photo-form" class="tabpane" data-pane="photo">
         <label>Prompt <textarea name="prompt" rows="5" maxlength="4000" required></textarea></label>
@@ -180,6 +216,7 @@
     <section class="panel gallery">
       <div class="gallery-head">
         <h2>Gallery</h2>
+        <div class="seg"><button type="button" class="seg-btn active" data-kind="photo">Photos</button><button type="button" class="seg-btn" data-kind="asset">Assets</button></div>
       </div>
       <div id="media-actions" class="action-bar" hidden>
         <span class="sel-name"></span>
@@ -190,6 +227,7 @@
           <button type="button" data-act="import" data-recipe-only>Import into Prompt Builder</button>
           <button type="button" data-act="photo-ref" data-photo-only data-photo-ref-only>Send to photo reference</button>
           <a class="button ghost" data-act="download">Download</a>
+          <a class="button ghost" data-act="exports" data-asset-only hidden>Download sizes (.zip)</a>
           <button type="button" data-act="delete" class="ghost danger">Delete</button>
         </div>
       </div>

@@ -221,7 +221,9 @@ class JobQueue:
         k = addons.llm_ui_strings()["result_model_key"]
         llm = plan.get(f"{k}_resolved") or plan.get("llm_resolved") or "the Python fallback"
         turn_note_fn = addons.REGISTRY.web.get("job_turn_note")
-        if plan["kind"] == "reconcile":
+        if plan["kind"] == "asset_plan":
+            self._note(job, f"{llm} is planning the asset from your brief...")
+        elif plan["kind"] == "reconcile":
             self._note(job, f"{llm} is reconciling your dropdowns with your vision...")
         elif plan["kind"] == "fill":
             self._note(job, f"{llm} is filling the dropdowns from your vision...")
@@ -234,12 +236,16 @@ class JobQueue:
             job["notes"] = list(plan["notes"]) + fin["notes"]
             for n in fin["notes"]:
                 self._logs[job["id"]].append(n)
-        if plan["kind"] in ("reconcile", "fill"):
+        if plan["kind"] in ("reconcile", "fill", "asset_plan"):
+            done_msg = {"reconcile": "Prompt reconciled; review and edit it, then Send.",
+                        "fill": "Dropdowns filled; review them.",
+                        "asset_plan": "Asset planned; review the fields and settings, then Generate."}[plan["kind"]]
+            if fin.get("refused"):
+                done_msg = "The model refused part of this brief; see the notes. Edit the fields, then Generate."
             with self._cond:
                 job["effective_prompt"] = fin.get("prompt")
                 job["result"] = {k: v for k, v in fin.items() if k != "notes"}
-                self._finish_locked(job, "done", "Prompt reconciled; review and edit it, then Send."
-                                    if plan["kind"] == "reconcile" else "Dropdowns filled; review them.")
+                self._finish_locked(job, "done", done_msg)
             return
         with self._cond:
             job.update(effective_prompt=fin["effective_prompt"], cmd=fin["cmd"], output=fin["output"], cfg=fin["cfg"])

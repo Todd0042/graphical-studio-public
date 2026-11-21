@@ -7,6 +7,8 @@ registered extensions. When ``extras`` is absent, every helper returns the safe 
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -136,6 +138,7 @@ def web_status() -> dict[str, Any] | None:
 def media_kind_specs(outputs_dir: str, photos_dir: str) -> dict[str, tuple[str, tuple[str, ...]]]:
     specs: dict[str, tuple[str, tuple[str, ...]]] = {
         "photo": (photos_dir, (".jpg", ".jpeg", ".png", ".webp")),
+        "asset": (os.path.join(outputs_dir, "assets"), (".png",)),  # Asset Studio; size exports sit in <name>_sizes/
     }
     extra = REGISTRY.web.get("media_kinds")
     if extra:

@@ -144,11 +144,20 @@ def build_photo_cli_command(cfg: dict) -> list[str]:
     return cmd
 
 
-def _scan_dir_by_ext(target_dir: str, exts: tuple[str, ...]) -> list[dict]:
+def _scan_dir_by_ext(target_dir: str, exts: tuple[str, ...], recursive: bool = False) -> list[dict]:
+    """Files with these extensions in target_dir (and, with recursive=True, its subfolders, except the
+    "<name>_sizes" folders that hold an asset's size exports)."""
     if not os.path.isdir(target_dir):
         return []
+    if recursive:
+        names = []
+        for here, dirs, files in os.walk(target_dir):
+            dirs[:] = [d for d in dirs if not d.endswith("_sizes")]
+            names += [os.path.relpath(os.path.join(here, f), target_dir) for f in files]
+    else:
+        names = os.listdir(target_dir)
     rows = []
-    for name in os.listdir(target_dir):
+    for name in names:
         if not name.lower().endswith(exts):
             continue
         full = os.path.join(target_dir, name)

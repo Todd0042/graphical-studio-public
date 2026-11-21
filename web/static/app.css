@@ -178,3 +178,8 @@ label.check { display: inline-flex; align-items: center; gap: 6px; }
 .cmp-fade legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
 .cmp-fade label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .cmp-fade label.check { flex-direction: row; align-items: center; gap: 6px; }
+
+/* Asset Studio */
+.grid-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px 10px; }
+.grid-media.assets img { background: repeating-conic-gradient(#8884 0 25%, #ccc4 0 50%) 0 0 / 16px 16px; }
+.small { font-size: 12px; }

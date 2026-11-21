@@ -15,7 +15,7 @@ from studio_prompt_catalog import (
     assemble_builder_prompt,
     ascertain_fields_from_prompt,
 )
-from studio_dpi import fit_window_geometry, get_font, s
+from studio_dpi import fit_window_geometry, get_font, register_scale_listener, s
 from studio_tooltips import attach_tooltip
 from studio_templates import auto_save_template, delete_template, get_template, load_templates, save_template
 

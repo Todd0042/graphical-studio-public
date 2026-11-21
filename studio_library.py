@@ -53,8 +53,14 @@ def _connect() -> sqlite3.Connection:
 
 
 def kind_of(path: str) -> str | None:
-    ext = os.path.splitext(path)[1].lower()
-    for kind, (_dir, exts) in addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR).items():
+    """The media kind of an output file: the kind whose folder holds it (an asset PNG isn't a photo), else
+    the first kind with that extension (older files saved elsewhere)."""
+    path, ext = os.path.abspath(path), os.path.splitext(path)[1].lower()
+    specs = addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR)
+    for kind, (base, exts) in specs.items():
+        if ext in exts and path.startswith(os.path.abspath(base) + os.sep):
+            return kind
+    for kind, (_base, exts) in specs.items():
         if ext in exts:
             return kind
     return None
@@ -120,7 +126,7 @@ def sync_from_disk(kind: str) -> int:
     if kind not in specs:
         return 0
     base_dir, exts = specs[kind]
-    files = _scan_dir_by_ext(base_dir, exts)
+    files = _scan_dir_by_ext(base_dir, exts, recursive=kind == "asset")
     with closing(_connect()) as con:
         known = {r[0] for r in con.execute("SELECT path FROM assets WHERE kind = ?", (kind,))}
     new = [f for f in files if os.path.abspath(f["path"]) not in known]

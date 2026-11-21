@@ -22,6 +22,7 @@ from studio_reconcile import reconcile_for_target
 from studio_vibe import fill_from_vision
 
 from studio_profiles import generate_random_person_variation
+import studio_assets
 from studio_rectifier import rectify_builder_fields, rectify_freeform_prompt
 from studio_helpers import (
     CORE_PHOTO_MODEL_SETTINGS,
@@ -170,6 +171,61 @@ def prepare_photo(data: dict, resolve_upload) -> dict[str, Any]:
     }
 
 
+# ---- Asset Studio (icons, backgrounds, textures, sprites): the desktop tab's engine, studio_assets.py ----------
+ASSET_KINDS = tuple(studio_assets.KIND_LABELS)
+_ASSET_TEXT = {"prompt": MAX_PROMPT, "negative": MAX_NEGATIVE, "final_size": 20, "export_sizes": 80, "title": 120}
+_ASSET_FIELD_MAX = 300
+
+
+def asset_options() -> dict[str, Any]:
+    return {
+        "kinds": [{"key": k, "label": v} for k, v in studio_assets.KIND_LABELS.items()],
+        "models": [{"key": k, "label": label, "installed": ok} for k, label, ok in studio_assets.model_choices()],
+        "samplers": list(studio_assets.SAMPLERS), "schedulers": list(studio_assets.SCHEDULERS),
+    }
+
+
+def prepare_asset_plan(data: dict) -> dict[str, Any]:
+    """Step 1 (a local-LLM job): a one-line brief -> editable fields and a full render plan with reasons."""
+    brief = _text(data, "brief", 1000)
+    if not brief:
+        raise SpecError("Describe the asset first (e.g. 'app icon for a budgeting app, friendly, flat')")
+    fields = data.get("fields")
+    if fields is not None and not isinstance(fields, dict):
+        raise SpecError("fields must be an object")
+    clean = {str(k)[:40]: str(v)[:_ASSET_FIELD_MAX] for k, v in (fields or {}).items() if isinstance(v, (str, int, float))}
+    return {"kind": "asset_plan", "prompt": brief, "brief": brief, "notes": [], "settings": {},
+            "asset_kind": _choice(data, "asset_kind", ("auto", *ASSET_KINDS), "auto"),
+            "fields": clean, "concept": _text(data, "concept", 1000), "llm": _llm_choice(data)}
+
+
+def prepare_asset(data: dict, _resolve_upload=None) -> dict[str, Any]:
+    """Step 2 (exclusive GPU job): render an edited plan with generate_asset.py."""
+    raw = data.get("plan")
+    if not isinstance(raw, dict):
+        raise SpecError("Plan the asset first, then generate it")
+    kind = raw.get("kind") if raw.get("kind") in ASSET_KINDS else None
+    if not kind:
+        raise SpecError("Unknown asset kind")
+    plan: dict[str, Any] = {"kind": kind}
+    for key in ("model", "sampler", "scheduler", "tile", "remove_bg"):
+        plan[key] = str(raw.get(key) or "")[:40]
+    for key in ("width", "height", "steps", "cfg", "guidance", "seed", "pixelate"):
+        if isinstance(raw.get(key), (int, float)) and not isinstance(raw.get(key), bool):
+            plan[key] = raw[key]
+    for key, limit in _ASSET_TEXT.items():
+        plan[key] = str(raw.get(key) or "")[:limit]
+    plan["hollow"], plan["lightning"] = bool(raw.get("hollow")), bool(raw.get("lightning"))
+    if not plan["prompt"].strip():
+        raise SpecError("The plan has no prompt")
+    if plan["model"] not in studio_assets.ASSET_MODELS:
+        raise SpecError("Unknown asset model")
+    out = studio_assets.output_path(kind, plan["title"], plan["prompt"])
+    settings = {k: plan.get(k) for k in ("kind", "model", "width", "height", "steps", "seed")}
+    return {"kind": "asset", "prompt": plan["prompt"], "notes": [], "settings": settings, "asset_plan": plan, "output": out,
+            "library": _library_entry(data, "asset", plan["prompt"])}
+
+
 def _valid_targets() -> tuple[str, ...]:
     extra = tuple(addons.REGISTRY.web.get("builder_targets") or ())
     return ("photo", *extra)
@@ -209,7 +265,7 @@ def _llm_choice(data: dict) -> str:
 
 def turn_needs(plan: dict[str, Any]) -> str:
     """What the session's first step needs: the chosen LLM loaded (Ollama), or exclusive device access."""
-    llm_kinds = {"reconcile", "fill", *tuple(addons.REGISTRY.web.get("llm_job_kinds") or ())}
+    llm_kinds = {"reconcile", "fill", "asset_plan", *tuple(addons.REGISTRY.web.get("llm_job_kinds") or ())}
     if plan["kind"] in llm_kinds:
         k = addons.llm_ui_strings()["result_model_key"]
         model, why = resolve_prompt_llm(plan.get(k) or plan.get("llm"))
@@ -269,6 +325,24 @@ def finalize(plan: dict[str, Any]) -> dict[str, Any]:
         values, notes = fill_from_vision(plan["values"], plan["vision"], replace=plan["replace"],
                                          use_llm=bool(resolved), model=resolved)
         return {"values": values, "notes": notes}
+    if kind == "asset_plan":
+        use = bool(resolved)
+        if plan["fields"]:  # the creator already edited the fields: only re-plan the render
+            exp = {"kind": plan["asset_kind"] if plan["asset_kind"] in ASSET_KINDS else "icon", "title": "",
+                   "concept": plan["concept"], "fields": plan["fields"], "notes": []}
+        else:
+            exp = studio_assets.expand_brief(plan["brief"], plan["asset_kind"], llm=resolved or "", use_llm=use)
+        if exp["kind"] not in ASSET_KINDS:
+            raise SpecError("Couldn't tell what kind of asset that is; pick one")
+        render = studio_assets.analyze(exp["kind"], exp["fields"], exp["concept"], llm=resolved or "", use_llm=use)
+        render["title"] = exp.get("title") or ""
+        notes = list(exp.get("notes") or []) + list(render.get("notes") or [])
+        return {"notes": notes, "kind": exp["kind"], "title": exp.get("title") or "", "concept": exp["concept"],
+                "fields": exp["fields"], "plan": render, "refused": bool(render.get("refused"))}
+    if kind == "asset":
+        cmd = studio_assets.build_command(plan["asset_plan"], plan["output"])
+        return {"effective_prompt": plan["prompt"], "notes": [], "cmd": cmd, "output": plan["output"],
+                "cfg": plan["asset_plan"]}
     finalizer = (addons.REGISTRY.web.get("job_finalizers") or {}).get(kind)
     if finalizer:
         return finalizer(plan)

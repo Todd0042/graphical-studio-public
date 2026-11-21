@@ -674,15 +674,15 @@ def build_photos_tab(parent, root, on_open_builder=None, on_import_builder=None,
 
     hdr_n = ttk.Frame(lf_prompt); hdr_n.grid(row=3, column=0, sticky="ew")
     l_neg = ttk.Label(hdr_n, text="Negative Prompt (--negative):"); l_neg.pack(side="left"); attach_tooltip(l_neg, "negative")
-    neg_helper = addons.REGISTRY.desktop.get("photo_neg_helper")
-    if neg_helper:
-        btn_cfg = neg_helper(txt_neg, refresh_cmd)
-        b_helper = ttk.Button(hdr_n, text=btn_cfg["label"], command=btn_cfg["command"])
-        b_helper.pack(side="right"); attach_tooltip(b_helper, btn_cfg["tooltip"])
 
     txt_neg = tk.Text(lf_prompt, height=2, wrap="word", bg="#0a0f1f", fg="#cdd6ef", insertbackground="#44e0ff", relief="flat", padx=6, pady=4, font=get_font("ui"))
     txt_neg.grid(row=4, column=0, sticky="ew", pady=(2, 6)); txt_neg.insert("1.0", PHOTO_DEFAULT_NEGATIVE); txt_neg.bind("<KeyRelease>", refresh_cmd)
     attach_tooltip(txt_neg, "negative")
+    neg_helper = addons.REGISTRY.desktop.get("photo_neg_helper")  # after txt_neg exists: the helper edits it
+    if neg_helper:
+        btn_cfg = neg_helper(txt_neg, refresh_cmd)
+        b_helper = ttk.Button(hdr_n, text=btn_cfg["label"], command=btn_cfg["command"])
+        b_helper.pack(side="right"); attach_tooltip(b_helper, btn_cfg["tooltip"])
 
     act = ttk.Frame(lf_prompt); act.grid(row=5, column=0, sticky="ew")
     btn_gen = ttk.Button(act, text="▶ Generate Photo(s)", style="Accent.TButton", command=start_generate); btn_gen.pack(side="left", padx=(0, 6))

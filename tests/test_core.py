@@ -213,7 +213,7 @@ def run_tests() -> None:
                 assert ("tw" + "in") not in app_js
 
                 opts = client.get("/api/options").json()
-                assert set(opts.keys()) == {"photo", "builder", "llms", "ui", "app_labels", "presets"}
+                assert set(opts.keys()) == {"photo", "assets", "builder", "llms", "ui", "app_labels", "presets"}
                 assert "video" not in opts and "features" not in opts
                 assert [m["key"] for m in opts["photo"]["models"]] == [
                     "flux2_klein", "flux_dev", "flux_schnell", "qwen_image"
@@ -274,6 +274,85 @@ def run_tests() -> None:
                     jid = ok_job.json()["id"]
                     assert client.post(f"/api/jobs/{jid}/cancel", headers={"X-GS-CSRF": "1"}).json()["cancelled"] is True
                     hold.set()
+
+            # Asset Studio on the web: brief -> plan (offline, no LLM installed) -> edit -> generate (a stand-in
+            # renderer writes the image and its icon size exports) -> gallery "Assets" -> sizes zip.
+            import io
+            import zipfile
+
+            import studio_assets
+            import studio_library
+            import web.server as web_server
+
+            png = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                                "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082")
+            fake_render = (
+                "import os, sys\n"
+                "out = sys.argv[1]; os.makedirs(os.path.dirname(out), exist_ok=True)\n"
+                f"data = bytes.fromhex({png.hex()!r})\n"
+                "open(out, 'wb').write(data)\n"
+                "sizes = os.path.splitext(out)[0] + '_sizes'; os.makedirs(sizes, exist_ok=True)\n"
+                "stem = os.path.basename(os.path.splitext(out)[0])\n"
+                "for n in (16, 32): open(os.path.join(sizes, f'{stem}_{n}x{n}.png'), 'wb').write(data)\n"
+                "open(os.path.join(sizes, stem + '.ico'), 'wb').write(b'ico')\n"
+                "print('ASSET_RESULT={}')\n"
+            )
+            asset_root = wdir / "outputs"
+            with TestClient(create_app(load_settings())) as client, \
+                 patch.dict(os.environ, {"GS_WEB_ENV_FILE": str(env_file), "GS_LIBRARY_DB": str(wdir / "asset_library.db")}), \
+                 patch("studio_models.ollama_installed", return_value={}), \
+                 patch.object(studio_assets, "ASSETS_DIR", str(asset_root / "assets")), \
+                 patch.object(studio_library, "OUTPUTS_DIR", str(asset_root)), \
+                 patch.object(web_server, "OUTPUTS_DIR", str(asset_root)), \
+                 patch.object(studio_assets, "build_command", lambda plan, out: [sys.executable, "-c", fake_render, out]):
+                client.get(f"/auth/sso?ticket={_mint_ticket(sso_secret, 'graphical-studio', 'tester')}&next=/",
+                           follow_redirects=False)
+                csrf = {"X-GS-CSRF": "1"}
+
+                def wait(jid):
+                    for _ in range(200):
+                        j = client.get(f"/api/jobs/{jid}").json()
+                        if j["status"] not in ("queued", "waiting_gpu", "running"):
+                            return j
+                        time.sleep(0.05)
+                    raise AssertionError(f"job {jid} never finished")
+
+                opts = client.get("/api/options").json()["assets"]
+                assert {k["key"] for k in opts["kinds"]} >= {"icon", "background"} and opts["models"]
+                html = client.get("/").text
+                assert 'id="asset-form"' in html and 'data-kind="asset"' in html
+
+                # Refused before anything runs: no brief; no plan; unknown kind/model; not signed in.
+                assert client.post("/api/jobs/asset_plan", headers=csrf, json={"brief": " "}).status_code == 400
+                assert client.post("/api/jobs/asset", headers=csrf, json={}).status_code == 400
+                bad = {"kind": "spaceship", "model": "flux_dev", "prompt": "x"}
+                assert client.post("/api/jobs/asset", headers=csrf, json={"plan": bad}).status_code == 400
+                bad = {"kind": "icon", "model": "not-a-model", "prompt": "x"}
+                assert client.post("/api/jobs/asset", headers=csrf, json={"plan": bad}).status_code == 400
+
+                job = client.post("/api/jobs/asset_plan", headers=csrf,
+                                  json={"brief": "app icon for a budgeting app, friendly piggy bank, flat, teal",
+                                        "asset_kind": "auto"}).json()
+                planned = wait(job["id"])
+                assert planned["status"] == "done", planned
+                r = planned["result"]
+                assert r["kind"] == "icon" and r["fields"] and r["plan"]["prompt"], r
+                assert r["plan"]["model"] in studio_assets.ASSET_MODELS
+
+                plan = dict(r["plan"], kind=r["kind"], title=r["title"], export_sizes="16,32", steps=4)
+                gen = client.post("/api/jobs/asset", headers=csrf, json={"plan": plan})
+                assert gen.status_code == 201, gen.text
+                done = wait(gen.json()["id"])
+                assert done["status"] == "done" and done["outputs"], done
+
+                items = client.get("/api/media?kind=asset").json()["items"]
+                assert len(items) == 1 and items[0]["kind"] == "asset", items  # the size exports aren't listed
+                assert not any(i["rel"].startswith("assets/") for i in client.get("/api/media?kind=photo").json()["items"])
+                z = client.get("/api/media/exports", params={"rel": items[0]["rel"]})
+                assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+                names = sorted(zipfile.ZipFile(io.BytesIO(z.content)).namelist())
+                assert len(names) == 3 and names[0].endswith(".ico") and any(n.endswith("_16x16.png") for n in names)
+                assert client.get("/api/media/exports", params={"rel": "../../etc/passwd"}).status_code == 404
 
             # Live isolated uvicorn HTTP check on ephemeral port (never touches 8040)
             import urllib.request

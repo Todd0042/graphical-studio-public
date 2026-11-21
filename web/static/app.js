@@ -146,6 +146,94 @@ function fillLlms(list, storageKey) {
   sel.addEventListener("change", () => { localStorage.setItem(storageKey, sel.value); markCaution(sel); });
 }
 
+/* ---------- Asset Studio: brief -> plan (local model) -> edit -> generate ---------- */
+function initAssetStudio(o) {
+  const f = $("#asset-form");
+  const opts = o.assets || { kinds: [], models: [] };
+  fillSelect(f.asset_kind, opts.kinds, { keepFirst: true });
+  fillSelect(f.model, opts.models.map((m) => ({ key: m.key, label: m.label + (m.installed ? "" : " (not installed)") })));
+  const llm = $("#llm-select");
+  if (llm) {
+    f.llm.replaceChildren(...[...llm.options].map((op) => op.cloneNode(true)));
+    f.llm.value = llm.value;
+  }
+  const msg = $(".form-msg", f);
+  const genMsg = $("#asset-gen-msg");
+  let current = null;  // the last plan: {kind, title, concept, fields, plan}
+
+  function showPlan(r, notes) {
+    current = r;
+    $("#asset-plan").hidden = false;
+    $("#asset-fields").replaceChildren(...Object.entries(r.fields || {}).map(([k, v]) =>
+      el("label", {}, k.replaceAll("_", " "), el("input", { name: `field:${k}`, value: String(v ?? ""), maxLength: 300 }))));
+    f.concept.value = r.concept || "";
+    const p = r.plan || {};
+    for (const k of ["model", "width", "height", "steps", "seed", "remove_bg", "tile", "pixelate", "final_size", "export_sizes", "prompt", "negative"]) {
+      if (f[k] && p[k] !== undefined && p[k] !== null) f[k].value = p[k];
+    }
+    const reasons = Object.entries(p.reasons || {}).map(([k, v]) => el("li", { textContent: `${k}: ${v}` }));
+    const extra = (notes || []).map((n) => el("li", { textContent: n }));
+    $("#asset-reasons").replaceChildren(...reasons, ...extra);
+  }
+  function editedFields() {
+    const out = {};
+    $$("input[name^='field:']", $("#asset-fields")).forEach((i) => { out[i.name.slice(6)] = i.value; });
+    return out;
+  }
+  async function plan(body, btn) {
+    btn.disabled = true;
+    setMsg(msg, "Planning…");
+    try {
+      const job = await api("/api/jobs/asset_plan", { method: "POST", body });
+      refreshJobs();
+      const done = await waitForJob(job.id, (j) => setMsg(msg, j.message || j.status));
+      if (done.status !== "done") throw new Error(done.error || done.message || "Planning failed");
+      showPlan(done.result, done.notes);
+      setMsg(msg, done.message, Boolean(done.result && done.result.refused));
+    } catch (e) {
+      setMsg(msg, e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  f.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    plan({ brief: f.brief.value, asset_kind: f.asset_kind.value, llm: f.llm.value }, $("button[type=submit]", f));
+  });
+  $("#asset-replan").addEventListener("click", (ev) => plan({
+    brief: f.brief.value, asset_kind: (current && current.kind) || f.asset_kind.value, llm: f.llm.value,
+    fields: editedFields(), concept: f.concept.value,
+  }, ev.currentTarget));
+  $("#asset-generate").addEventListener("click", async (ev) => {
+    if (!current) return;
+    const btn = ev.currentTarget;
+    const p = { ...(current.plan || {}), kind: current.kind, title: current.title || "" };
+    for (const k of ["model", "remove_bg", "tile", "final_size", "export_sizes", "prompt", "negative"]) p[k] = f[k].value;
+    for (const k of ["width", "height", "steps", "seed", "pixelate"]) p[k] = Number(f[k].value);
+    btn.disabled = true;
+    try {
+      const job = await api("/api/jobs/asset", { method: "POST", body: { plan: p } });
+      setMsg(genMsg, `Queued (${job.id}). It shows up under Gallery → Assets when done.`);
+      refreshJobs();
+    } catch (e) {
+      setMsg(genMsg, e.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+/* Gallery kind switch (Photos | Assets, plus any extension's kinds). */
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest(".gallery-head .seg-btn[data-kind]");
+  if (!b) return;
+  state.galleryKind = b.dataset.kind;
+  $$(".gallery-head .seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+  $("#gallery-grid").classList.toggle("assets", state.galleryKind === "asset");
+  state.selected = null;
+  loadGallery();
+});
+
 /* ---------- attachments (reference image) ---------- */
 function setAttachment(key, token, { thumb = "", label = "" } = {}) {
   const box = $(`.attach[data-attach="${key}"]`);
@@ -509,6 +597,11 @@ function updateActionButtons(root, it) {
   runHooks("actionButtons", root, it, isPhoto);
   const dl = $("[data-act=download]", root);
   if (it) dl.href = `/media/file/${encodeURI(it.rel)}?download=true`;
+  const ex = $("[data-act=exports]", root);
+  if (ex) {
+    ex.hidden = !(it && it.kind === "asset");
+    if (it) ex.href = `/api/media/exports?rel=${encodeURIComponent(it.rel)}`;
+  }
 }
 
 function selectItem(it) {
@@ -658,6 +751,7 @@ window.GS = {
 /* ---------- boot ---------- */
 (async () => {
   await loadOptions();
+  initAssetStudio(state.options);
   setTarget("photo");
   await Promise.all([loadTemplates(), loadGallery(), refreshJobs()]);
   setInterval(refreshJobs, 2000);
