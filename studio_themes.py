@@ -161,12 +161,12 @@ def _recolor_tk_widgets(widget, p: dict):
 def apply_theme(root, theme_id: str | None = None, persist: bool = False) -> str:
     """Apply a categorized theme palette to ttk styles, tk widgets, and tooltips."""
     from tkinter import ttk
-    from wan_dpi import get_font, s
-    import wan_tooltips
+    from studio_dpi import get_font, s
+    import studio_tooltips
 
     tid = theme_id if theme_id in THEMES_BY_ID else load_saved_theme_id()
     _, _, p = THEMES_BY_ID[tid]
-    wan_tooltips.CURRENT_PALETTE = dict(p)
+    studio_tooltips.CURRENT_PALETTE = dict(p)
 
     f_ui = get_font("ui")
     f_bold = get_font("ui_bold")
@@ -229,9 +229,9 @@ def build_themes_tab(parent, root, active_var, on_select_theme, scale_var=None, 
     """Build the categorized Themes & Appearance tab (Pixel at top, then COSMIC, KDE, GTK, Qt)."""
     import tkinter as tk
     from tkinter import ttk
-    import wan_dpi
-    from wan_dpi import SCALE_OPTIONS, register_scale_listener, s
-    from wan_tooltips import attach_tooltip
+    import studio_dpi
+    from studio_dpi import SCALE_OPTIONS, register_scale_listener, s
+    from studio_tooltips import attach_tooltip
 
     outer = ttk.Frame(parent, padding=s(12))
     outer.pack(fill="both", expand=True)
@@ -252,10 +252,10 @@ def build_themes_tab(parent, root, active_var, on_select_theme, scale_var=None, 
         v_dpi_info = tk.StringVar()
 
         def _refresh_dpi_info(*_):
-            v_scale_lbl.set(lbl_by_key.get(scale_var.get(), f"{int(round(wan_dpi.CURRENT_SCALE * 100))}%"))
+            v_scale_lbl.set(lbl_by_key.get(scale_var.get(), f"{int(round(studio_dpi.CURRENT_SCALE * 100))}%"))
             v_dpi_info.set(
-                f"Detected {wan_dpi.LAST_DETECTED_DPI:.0f} DPI -> Auto {int(round(wan_dpi.LAST_AUTO_SCALE * 100))}% "
-                f"| Active: {int(round(wan_dpi.CURRENT_SCALE * 100))}%  (Shortcuts: Ctrl++ / Ctrl+- / Ctrl+0)"
+                f"Detected {studio_dpi.LAST_DETECTED_DPI:.0f} DPI -> Auto {int(round(studio_dpi.LAST_AUTO_SCALE * 100))}% "
+                f"| Active: {int(round(studio_dpi.CURRENT_SCALE * 100))}%  (Shortcuts: Ctrl++ / Ctrl+- / Ctrl+0)"
             )
 
         cb_scale.bind("<<ComboboxSelected>>", lambda *_: on_select_scale(scale_by_lbl.get(v_scale_lbl.get(), "auto")))

@@ -3,7 +3,7 @@
 import random
 
 import addons
-from wan_prompt_catalog import (
+from studio_prompt_catalog import (
     ALL_FIELDS,
     FIELD_BY_KEY,
     MOTION_FIELDS,
@@ -13,26 +13,26 @@ from wan_prompt_catalog import (
     SCENE_ATTIRE_FIELDS,
     THEME_FIELDS,
     assemble_builder_prompt,
-    assemble_motion_only,
     ascertain_fields_from_prompt,
 )
-from wan_dpi import fit_window_geometry, get_font, register_scale_listener, s
-from wan_tooltips import attach_tooltip
-from wan_templates import auto_save_template, delete_template, get_template, load_templates, save_template
+from studio_dpi import fit_window_geometry, get_font, s
+from studio_tooltips import attach_tooltip
+from studio_templates import auto_save_template, delete_template, get_template, load_templates, save_template
 
 
-def build_quick_bar(parent, on_apply_text, on_open_full_builder, include_motion: bool = True):
-    """Build a compact quick-pick prompt dropdown bar inside Video or Photos tab."""
+def build_quick_bar(parent, on_apply_text, on_open_full_builder, include_motion: bool = False):
+    """Build a compact quick-pick prompt dropdown bar."""
     import tkinter as tk
     from tkinter import ttk
 
+    extra_active = bool(include_motion and MOTION_FIELDS)
     lf = ttk.LabelFrame(
         parent,
-        text="Quick Scene, Person & Motion Builder (Hover any item for help)" if (include_motion and addons.REGISTRY.video_enabled)
+        text="Quick Scene, Person & Motion Builder (Hover any item for help)" if extra_active
         else "Quick Scene & Person Builder (Hover any item for help)",
         padding=6,
     )
-    keys = QUICK_VIDEO_KEYS if include_motion else QUICK_PHOTO_KEYS
+    keys = QUICK_VIDEO_KEYS if extra_active else QUICK_PHOTO_KEYS
     vars_map = {}
 
     grid = ttk.Frame(lf)
@@ -53,7 +53,7 @@ def build_quick_bar(parent, on_apply_text, on_open_full_builder, include_motion:
         attach_tooltip(cb, tkey)
 
     def apply_quick():
-        text = assemble_builder_prompt({k: v.get() for k, v in vars_map.items()}, include_motion=include_motion)
+        text = assemble_builder_prompt({k: v.get() for k, v in vars_map.items()}, include_motion=extra_active)
         if text:
             on_apply_text(text)
 
@@ -71,11 +71,7 @@ def build_quick_bar(parent, on_apply_text, on_open_full_builder, include_motion:
     btn_clear.pack(side="left", padx=(0, 6))
     attach_tooltip(btn_clear, "builder_clear")
 
-    btn_full_lbl = (
-        "🛠 Open Full Scene & Motion Builder (All Traits & Motions)..."
-        if addons.REGISTRY.video_enabled
-        else "🛠 Open Full Scene & Person Builder (All Traits)..."
-    )
+    btn_full_lbl = addons.REGISTRY.desktop.get("builder_full_btn_label") or "🛠 Open Full Scene & Person Builder (All Traits)..."
     btn_full = ttk.Button(bar, text=btn_full_lbl, style="Accent.TButton", command=on_open_full_builder)
     btn_full.pack(side="right")
     attach_tooltip(btn_full, "open_builder")
@@ -101,31 +97,32 @@ def _add_group_box(parent, title: str, fields, vars_map, on_change):
     return box
 
 
-def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=None):
-    """Open or focus the full Scene, Person, Attire & Video Motion Builder Toplevel window."""
+def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_prompt=None):
+    """Open or focus the full Scene & Person Builder Toplevel window."""
     import tkinter as tk
     from tkinter import ttk
-    from wan_tooltips import CURRENT_PALETTE
+    from studio_tooltips import CURRENT_PALETTE
 
-    existing = getattr(root, "_wan_builder_win", None)
+    existing = getattr(root, "_studio_builder_win", None)
     if existing is not None and existing.winfo_exists():
         existing.deiconify()
         existing.lift()
         existing.focus_force()
         return existing
 
-    video_on = bool(addons.REGISTRY.video_enabled and MOTION_FIELDS)
+    extra_targets = list(addons.REGISTRY.desktop.get("builder_targets") or [])
+    extra_section = bool(MOTION_FIELDS)
     p = CURRENT_PALETTE
     win = tk.Toplevel(root)
-    root._wan_builder_win = win
-    win.title("🛠 Graphical Studio — Full Scene, Person & Motion Builder" if video_on else "🛠 Graphical Studio — Full Scene & Person Builder")
+    root._studio_builder_win = win
+    win.title(addons.REGISTRY.desktop.get("builder_title") or "🛠 Graphical Studio — Full Scene & Person Builder")
     fit_window_geometry(win, 1180, 960, 940, 720)
     win.configure(bg=p["bg"])
 
     vars_map: dict[str, tk.StringVar] = {}
     v_notes = tk.StringVar(value="")
 
-    # ── Template bar (top): [template dropdown] [Apply] [Save As...] [Delete] ──
+    # ── Template bar (top) ──
     tpl_bar = ttk.Frame(win, padding=(10, 10, 10, 0))
     tpl_bar.pack(fill="x")
     lbl_tpl = ttk.Label(tpl_bar, text="Template:", font=get_font("small_bold"))
@@ -144,8 +141,8 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
         elif v_template.get() not in names:
             v_template.set(names[0] if names else "")
 
-    # ── Presets: set only the dropdowns that belong together for a look; everything else stays ──
-    from wan_presets import PRESETS
+    # ── Presets ──
+    from studio_presets import PRESETS
 
     preset_bar = ttk.LabelFrame(win, text="Presets (set only their own dropdowns; the rest stay as you left them)", padding=(8, 4))
     preset_bar.pack(fill="x", padx=10, pady=(8, 0))
@@ -179,16 +176,16 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
     col_right.grid(row=0, column=1, sticky="nsew")
     col_right.columnconfigure(0, weight=1)
 
-    scope: dict = {}  # widgets defined further down, read by refresh_preview once they exist
+    scope: dict = {}
 
     def refresh_preview(*_):
-        from wan_rectifier import rectify_builder_fields
+        from studio_rectifier import rectify_builder_fields
 
         if "txt_prev" not in scope:
-            return  # widgets not built yet
+            return
         vals = {k: v.get() for k, v in vars_map.items()}
         extras = [("extra_notes", v_notes.get().strip())] if v_notes.get().strip() else None
-        assembled, notes = rectify_builder_fields(vals, extra_clauses=extras, include_motion=(scope["v_target"].get() == "video"))
+        assembled, notes = rectify_builder_fields(vals, extra_clauses=extras, include_motion=(scope["v_target"].get() != "photo"))
         txt_prev = scope["txt_prev"]
         txt_prev.configure(state="normal")
         txt_prev.delete("1.0", "end")
@@ -202,9 +199,11 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
             scope["v_rect_info"].set("⚖ Conflict Rectifier: clean (no conflicting dropdown tags)")
 
     _add_group_box(col_left, "1. Theme, Style & Camera", THEME_FIELDS, vars_map, refresh_preview).pack(fill="x", pady=(0, 8))
-    _add_group_box(col_left, "3. Attire, Pose, Props & Location", SCENE_ATTIRE_FIELDS, vars_map, refresh_preview).pack(fill="both" if not video_on else "x", expand=not video_on, pady=(0, 8 if video_on else 0))
-    if video_on:
-        sec4 = addons.REGISTRY.video_ui_strings.get("video_builder_section_title", "4. Video Motion & Camera Action")
+    _add_group_box(col_left, "3. Attire, Pose, Props & Location", SCENE_ATTIRE_FIELDS, vars_map, refresh_preview).pack(
+        fill="both" if not extra_section else "x", expand=not extra_section, pady=(0, 8 if extra_section else 0),
+    )
+    if extra_section:
+        sec4 = addons.REGISTRY.desktop.get("builder_section4_title") or "4. Extra Action & Motion"
         _add_group_box(col_left, sec4, MOTION_FIELDS, vars_map, refresh_preview).pack(fill="both", expand=True)
     _add_group_box(col_right, "2. Person Characteristics", PERSON_FIELDS, vars_map, refresh_preview).pack(fill="both", expand=True)
 
@@ -212,9 +211,8 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
     bottom.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(8, 0))
     bottom.columnconfigure(1, weight=1)
 
-    # Building for Photo/Video + which local LLM reconciles and fills (models.json).
-    from wan_models import prompt_llm_options
-    from wan_themes import CAUTION_FG
+    from studio_models import prompt_llm_options
+    from studio_themes import CAUTION_FG
 
     ui = addons.llm_ui_strings()
     llm_res_key = ui["result_model_key"]
@@ -222,9 +220,9 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
     top_row = ttk.Frame(bottom)
     top_row.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
     v_target = tk.StringVar(value="photo")
-    if video_on:
+    if extra_targets:
         ttk.Label(top_row, text="Building for:", font=get_font("small_bold")).pack(side="left", padx=(0, 6))
-        for val, lbl in (("photo", "🖼 Photo"), ("video", "🎬 Video")):
+        for val, lbl in [("photo", "🖼 Photo")] + extra_targets:
             ttk.Radiobutton(top_row, text=lbl, value=val, variable=v_target, command=lambda: on_target()).pack(side="left", padx=(0, 8))
     llm_opts = prompt_llm_options()
     llm_by_label = {(d["label"] if d["installed"] else f"{d['label']} (not installed: --llm-sync)"): d for d in llm_opts}
@@ -308,7 +306,7 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
     def run_llm_job(label: str, work, done):
         """Run LLM work off the Tk thread."""
         import threading
-        from wan_models import resolve_prompt_llm
+        from studio_models import resolve_prompt_llm
 
         if rec_state["busy"]:
             return
@@ -323,11 +321,12 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
             if why:
                 notes.append(why)
             try:
-                with addons.gpu_session(f"builder {label}", needs=f"ollama:{model}" if model else "none",
-                                        on_status=lambda m: root.after(0, v_rec_status.set, f"⏳ {m}")):
+                with addons.execution_session(f"builder {label}", needs=f"ollama:{model}" if model else "none",
+                                              on_status=lambda m: root.after(0, v_rec_status.set, f"⏳ {m}")):
                     result = work(model)
-            except (addons.gpu_session_error(), OSError) as exc:
-                notes.append(f"{addons.REGISTRY.gpu_unavailable_note} ({exc}); used the Python fallback without {ui['actor_name']}.")
+            except (addons.session_error(), OSError) as exc:
+                unavail = addons.REGISTRY.session.get("unavailable_note") or "Execution session unavailable"
+                notes.append(f"{unavail} ({exc}); used the Python fallback without {ui['actor_name']}.")
                 result = work(None)
             except Exception as exc:
                 result, notes = None, notes + [f"⚠ {label} failed: {exc}"]
@@ -345,7 +344,7 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
         threading.Thread(target=worker, daemon=True).start()
 
     def fill_from_vision_clicked():
-        from wan_vibe import fill_from_vision
+        from studio_vibe import fill_from_vision
 
         vision = v_notes.get().strip()
         if not vision:
@@ -364,7 +363,7 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
                     lambda model: fill_from_vision(vals, vision, replace=replace, use_llm=bool(model), model=model), done)
 
     def reconcile_clicked():
-        from wan_reconcile import reconcile_for_target
+        from studio_reconcile import reconcile_for_target
 
         vals, vision, target, snap = get_vals(), v_notes.get().strip(), v_target.get(), snapshot()
 
@@ -381,16 +380,17 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
         rec_state.update(result=result, snapshot=snap)
         txt_final.delete("1.0", "end")
         txt_final.insert("1.0", result["prompt"])
-        prefix = addons.REGISTRY.video_ui_strings.get("video_model_prefix", "Video")
-        model = result["model"] if result["target"] == "photo" else f"{prefix} {result['version']}"
-        extra = f", {result['duration']}s at {result['fps']} fps" if result["target"] == "video" else ""
+        fmt_summary = addons.REGISTRY.desktop.get("format_target_summary")
+        summary = fmt_summary(result) if (result["target"] != "photo" and fmt_summary) else (
+            f"{result['model']}, {result['steps']} steps, CFG {result['cfg']}, {result['sampler']}/{result['scheduler']}"
+        )
         by_val = result.get(llm_res_key) or result.get("llm") or ""
         by = f" · reconciled by {by_val}" if by_val else ""
-        v_final_info.set(f"Will use {model}, {result['steps']} steps, CFG {result['cfg']}, {result['sampler']}/{result['scheduler']}{extra}{by}"
-                         + (f"\n{' | '.join(notes)}" if notes else ""))
+        v_final_info.set(f"Will use {summary}{by}" + (f"\n{' | '.join(notes)}" if notes else ""))
 
     def on_target():
-        btn_send.configure(text="🎬 Send to Video Tab" if v_target.get() == "video" else "🖼 Send to Photos Tab")
+        labels = addons.REGISTRY.desktop.get("builder_send_labels", {})
+        btn_send.configure(text=labels.get(v_target.get(), "🖼 Send to Photos Tab"))
         refresh_preview()
         mark_stale()
 
@@ -424,7 +424,6 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
                 win.update_idletasks()
                 win.after(10, step, i + 1)
                 return
-            # All dropdowns are in place; custom text goes last.
             if notes is not None:
                 v_notes.set(notes)
             win.update_idletasks()
@@ -522,19 +521,14 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
             v_rec_status.set("⚠ Reconcile first.")
             return
         target = res["target"]
-        autosave("Video" if target == "video" else "Photo")
-        from wan_library import builder_state
+        autosave(target.capitalize())
+        from studio_library import builder_state
 
         vals = dict(rec_state["snapshot"][1])
         builder = builder_state(vals, rec_state["snapshot"][2], target, res["prompt"], final_prompt=final,
                                 llm=res.get(llm_res_key) or res.get("llm") or "")
-        apply = on_apply_video if target == "video" else on_apply_photo
+        apply = extra_apply_targets.get(target, on_apply_photo)
         apply(final, replace=True, builder_vals=vals, settings=res, builder=builder)
-
-    def append_motion():
-        motion_text = assemble_motion_only(get_vals(), v_notes.get())
-        if motion_text:
-            on_apply_video(motion_text, replace=False)
 
     def pick_random():
         for key, _, _, opts in ALL_FIELDS:
@@ -563,8 +557,14 @@ def open_builder_window(root, on_apply_video, on_apply_photo, get_active_prompt=
     btn_send.pack(side="left", padx=(0, 6))
     attach_tooltip(btn_send, "Sends the Final prompt exactly as edited, with the auto-picked model and settings.")
     send_buttons = [btn_send, btn_fill, btn_reconcile]
+
+    extra_builder_btns = []
+    for act_spec in addons.REGISTRY.desktop.get("extra_builder_actions", ()):
+        fn = act_spec["factory"](get_vals=get_vals, v_notes=v_notes, extra_apply_targets=extra_apply_targets)
+        extra_builder_btns.append((act_spec["label"], fn, "TButton", act_spec["tooltip"]))
+
     extra_btns = (
-        *((("➕ Append Motion Only to Video", append_motion, "TButton", "builder_append_motion"),) if video_on else ()),
+        *extra_builder_btns,
         ("🔍 Ascertain From Prompt", ascertain_from_prompt, "TButton", "builder_ascertain"),
         ("🎲 Sample Mix", pick_random, "TButton", "builder_random"),
         ("🧹 Clear All", clear_all, "TButton", "builder_clear"),
@@ -654,4 +654,3 @@ def build_outputs_panel(parent, root, title: str, placeholder: str, on_select, o
         b.grid(row=r, column=c, columnspan=cs, sticky="ew", padx=3, pady=3)
         attach_tooltip(b, tkey)
     return right, tree, lbl_preview
-

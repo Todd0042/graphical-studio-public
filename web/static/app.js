@@ -25,23 +25,31 @@ async function api(path, { method = "GET", body, form } = {}) {
   return data;
 }
 
-const state = { options: null, uploads: {}, galleryKind: "photo", galleryItems: [], selected: null, jobsSig: "",
-  // The Prompt Builder state behind each form's prompt (set by Send or Import), saved with the job so the
-  // library can bring it back later. Cleared when the form's prompt is emptied.
-  builder: { photo: null, video: null },
-  target: "photo", reconciled: null };
-const STATE_LABEL = { queued: "Queued", waiting_gpu: "Waiting for GPU", running: "Generating", done: "Done", failed: "Failed", cancelled: "Cancelled" };
+const state = {
+  options: null, uploads: {}, galleryKind: "photo", galleryItems: [], selected: null, jobsSig: "",
+  builder: { photo: null }, target: "photo", reconciled: null,
+};
+const STATE_LABEL = { queued: "Queued", waiting_gpu: "Waiting", running: "Generating", done: "Done", failed: "Failed", cancelled: "Cancelled" };
 const ACTIVE = new Set(["queued", "waiting_gpu", "running"]);
 const APP_LABEL = { graphical_studio: "Graphical Studio" };
 const mediaRel = (p) => p.split("/outputs/").pop();
 const setMsg = (node, text, isErr = false) => { node.textContent = text; node.classList.toggle("err", isErr); };
+
+const hooks = {
+  optionsLoaded: [], status: [], actionButtons: [], tileRender: [],
+  applyRecipe: [], sendBuilder: [], showReconciled: [], viewerMedia: [], selectFromQueue: [],
+};
+const runHooks = (name, ...args) => hooks[name].forEach((fn) => fn(...args));
 
 /* ---------- tabs ---------- */
 function showTab(name) {
   $$(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $$(".tabpane").forEach((p) => (p.hidden = p.dataset.pane !== name));
 }
-$$(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab)));
+document.addEventListener("click", (ev) => {
+  const tab = ev.target.closest(".tab[data-tab]");
+  if (tab) showTab(tab.dataset.tab);
+});
 
 /* ---------- options ---------- */
 function fillSelect(select, items, { keepFirst = false } = {}) {
@@ -55,7 +63,6 @@ function fillSelect(select, items, { keepFirst = false } = {}) {
   markCaution(select);
 }
 
-// A red option keeps the select red while it's chosen, so the caveat stays visible.
 function markCaution(select) {
   select.classList.toggle("caution", !!select.selectedOptions[0]?.classList.contains("caution"));
 }
@@ -76,8 +83,6 @@ function applyPhotoPreset(label) {
 
 async function loadOptions() {
   const o = (state.options = await api("/api/options"));
-  const videoOn = !!(o.features?.video && o.video);
-  $$("[data-video-only]").forEach((n) => (n.hidden = !videoOn));
   const pf = $("#photo-form");
   fillSelect(pf.model, o.photo.models);
   fillSelect(pf.sampler, o.photo.samplers);
@@ -92,28 +97,12 @@ async function loadOptions() {
   $$("[data-photo-ref-only]").forEach((n) => (n.hidden = o.photo.supports_ref === false));
   $$("[data-photo-lora-only]").forEach((n) => (n.hidden = o.photo.supports_lora === false));
 
-  if (videoOn) {
-    const vf = $("#video-form");
-    fillSelect(vf.version, o.video.models);
-    vf.version.addEventListener("change", () => {
-      const m = o.video.models.find((x) => x.key === vf.version.value);
-      if (m) Object.entries(m.settings).forEach(([k, v]) => { vf[k].value = v; });
-      markCaution(vf.version);
-    });
-    fillSelect(vf.sampler, o.video.samplers);
-    fillSelect(vf.scheduler, o.video.schedulers);
-    fillSelect(vf.preset, [{ key: "", label: "Custom" }, ...o.video.presets.map((p) => ({ key: p.label, label: p.label }))]);
-    vf.negative.value = o.video.default_negative;
-    vf.preset.addEventListener("change", () => {
-      const p = o.video.presets.find((x) => x.label === vf.preset.value);
-      if (p) { vf.width.value = p.width; vf.height.value = p.height; vf.duration.value = p.duration; vf.fps.value = p.fps; }
-    });
-  }
   renderBuilder(o.builder);
   if (o.app_labels) Object.assign(APP_LABEL, o.app_labels);
   applyUiStrings(o.ui);
   fillLlms(o[o.ui?.api_list_key || "llms"] || o.llms || [], o.ui?.storage_key || "gs-llm");
   renderPresets(o.presets, o.builder);
+  runHooks("optionsLoaded", o);
 }
 
 function applyUiStrings(ui) {
@@ -127,17 +116,8 @@ function applyUiStrings(ui) {
   setTxt("#final-help", ui.final_help);
   setTxt("#photo-model-help", ui.photo_model_help);
   setTxt("#photo-neg-help", ui.photo_neg_help);
-  setTxt("#video-model-label", ui.video_model_label);
-  setTxt("#video-fps-help", ui.video_fps_help);
-  setTxt("#video-steps-help", ui.video_steps_help);
-  const vmh = $("#video-model-help");
-  if (vmh && ui.video_model_help) {
-    vmh.replaceChildren(ui.video_model_help);
-    if (ui.video_model_caution) vmh.append(el("span", { className: "caution", textContent: ui.video_model_caution }));
-  }
 }
 
-// Presets: one click sets the dropdowns that belong together; every other field is left alone.
 function renderPresets(presets, groups) {
   const labelOf = Object.fromEntries(groups.flatMap((g) => g.fields.map((f) => [f.key, f.label])));
   $("#preset-buttons").replaceChildren(...presets.map((p) => {
@@ -166,9 +146,10 @@ function fillLlms(list, storageKey) {
   sel.addEventListener("change", () => { localStorage.setItem(storageKey, sel.value); markCaution(sel); });
 }
 
-/* ---------- attachments (reference image / start image) ---------- */
+/* ---------- attachments (reference image) ---------- */
 function setAttachment(key, token, { thumb = "", label = "" } = {}) {
   const box = $(`.attach[data-attach="${key}"]`);
+  if (!box) return;
   if (!token) {
     delete state.uploads[key];
     box.hidden = true;
@@ -179,48 +160,50 @@ function setAttachment(key, token, { thumb = "", label = "" } = {}) {
   $("[data-attach-label]", box).textContent = label;
   box.hidden = false;
 }
-$$("[data-clear]").forEach((b) => b.addEventListener("click", () => {
-  setAttachment(b.dataset.clear, null);
-  if (b.dataset.clear === "ref_upload") $("#photo-form").ref_mode.value = "none";
-}));
 
-$$("input[type=file][data-upload]").forEach((input) => {
-  input.addEventListener("change", async () => {
-    const key = input.dataset.upload;
-    const msg = $(".form-msg", input.closest("form"));
-    setAttachment(key, null);
-    if (!input.files.length) return;
-    const fd = new FormData();
-    fd.append("file", input.files[0]);
-    setMsg(msg, "Uploading image…");
-    try {
-      const res = await api("/api/uploads", { method: "POST", form: fd });
-      setAttachment(key, res.upload, { thumb: URL.createObjectURL(input.files[0]), label: input.files[0].name });
-      if (key === "ref_upload" && $("#photo-form").ref_mode.value === "none") $("#photo-form").ref_mode.value = "person";
-      setMsg(msg, "Image attached.");
-    } catch (e) {
-      setMsg(msg, e.message, true);
-    } finally {
-      input.value = "";
-    }
+function bindAttachmentInputs(root = document) {
+  $$("[data-clear]", root).forEach((b) => b.addEventListener("click", () => {
+    setAttachment(b.dataset.clear, null);
+    if (b.dataset.clear === "ref_upload") $("#photo-form").ref_mode.value = "none";
+  }));
+
+  $$("input[type=file][data-upload]", root).forEach((input) => {
+    input.addEventListener("change", async () => {
+      const key = input.dataset.upload;
+      const msg = $(".form-msg", input.closest("form"));
+      setAttachment(key, null);
+      if (!input.files.length) return;
+      const fd = new FormData();
+      fd.append("file", input.files[0]);
+      setMsg(msg, "Uploading image…");
+      try {
+        const res = await api("/api/uploads", { method: "POST", form: fd });
+        setAttachment(key, res.upload, { thumb: URL.createObjectURL(input.files[0]), label: input.files[0].name });
+        if (key === "ref_upload" && $("#photo-form").ref_mode.value === "none") $("#photo-form").ref_mode.value = "person";
+        setMsg(msg, "Image attached.");
+      } catch (e) {
+        setMsg(msg, e.message, true);
+      } finally {
+        input.value = "";
+      }
+    });
   });
-});
+}
+bindAttachmentInputs();
 
 /* ---------- submit ---------- */
-function formPayload(form, kind) {
+function formPayload(form, kind, uploadKey = "ref_upload") {
   const data = {};
   for (const f of form.elements) {
     if (!f.name || f.type === "file" || f.name === "preset") continue;
     data[f.name] = f.type === "checkbox" ? f.checked : f.value;
   }
-  if (kind === "photo" && state.uploads.ref_upload) data.ref_upload = state.uploads.ref_upload;
-  if (kind === "video" && state.uploads.start_upload) data.start_upload = state.uploads.start_upload;
+  if (state.uploads[uploadKey]) data[uploadKey] = state.uploads[uploadKey];
   if (state.builder[kind]) data.builder = state.builder[kind];
   return data;
 }
 
-for (const kind of ["photo", "video"]) {
-  const form = $(`#${kind}-form`);
+function bindJobForm(form, kind, uploadKey = "ref_upload") {
   form.prompt.addEventListener("input", () => { if (!form.prompt.value.trim()) state.builder[kind] = null; });
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -228,7 +211,7 @@ for (const kind of ["photo", "video"]) {
     const btn = $("button[type=submit]", form);
     btn.disabled = true;
     try {
-      const job = await api(`/api/jobs/${kind}`, { method: "POST", body: formPayload(form, kind) });
+      const job = await api(`/api/jobs/${kind}`, { method: "POST", body: formPayload(form, kind, uploadKey) });
       setMsg(msg, `Queued (${job.id}).${job.notes.length ? " " + job.notes.join(" · ") : ""}`);
       refreshJobs();
     } catch (e) {
@@ -238,6 +221,7 @@ for (const kind of ["photo", "video"]) {
     }
   });
 }
+bindJobForm($("#photo-form"), "photo", "ref_upload");
 
 async function waitForJob(id, onUpdate) {
   for (;;) {
@@ -283,16 +267,13 @@ function mergeNegative(base, adds) {
   return neg.join(", ");
 }
 
-/* Builder flow: (Fill from vision) -> pick dropdowns -> live Preview -> Reconcile prompt ->
-   edit the Final prompt -> Send. Send uses the Final prompt exactly as edited. */
 function setTarget(target) {
   state.target = target;
   $$("#builder-target .seg-btn").forEach((b) => b.classList.toggle("active", b.dataset.target === target));
-  $("#send-btn").textContent = `Send to ${target === "photo" ? "Photo" : "Video"}`;
+  $("#send-btn").textContent = `Send to ${target === "photo" ? "Photo" : target[0].toUpperCase() + target.slice(1)}`;
   markStale();
   schedulePreview();
 }
-$$("#builder-target .seg-btn").forEach((b) => b.addEventListener("click", () => setTarget(b.dataset.target)));
 
 function builderSnapshot() {
   return JSON.stringify([state.target, builderValues(), $("#vision").value]);
@@ -348,7 +329,8 @@ $("#reconcile-btn").addEventListener("click", async () => {
     const job = await runBuilderJob("reconcile", { target: state.target, values: builderValues(), vision: $("#vision").value },
       [$("#reconcile-btn"), $("#send-btn")]);
     showReconciled(job.result, job.notes || [], snapshot);
-    setMsg($("#builder-msg"), "Reconciled. Edit the Final prompt if you like, then Send.");
+    if (job.result?.refused) setMsg($("#builder-msg"), (job.notes || [])[0] || "Refused by instruct LLM.", true);
+    else setMsg($("#builder-msg"), "Reconciled. Edit the Final prompt if you like, then Send.");
   } catch (e) { setMsg($("#builder-msg"), e.message, true); }
 });
 
@@ -357,12 +339,12 @@ function showReconciled(r, notes, snapshot) {
   $("#final-box").hidden = false;
   $("#final-prompt").value = r.prompt;
   $("#final-notes").textContent = notes.join(" · ");
-  const prefix = state.options?.ui?.video_model_prefix || "Video";
-  const model = r.target === "photo" ? r.model : `${prefix} ${r.version}`;
   const llmKey = state.options?.ui?.result_model_key || "llm";
   const usedLlm = r[llmKey] || r.llm || "";
-  $("#final-settings").textContent = `Will use ${model}, ${r.steps} steps, CFG ${r.cfg}, ${r.sampler}/${r.scheduler}` +
-    (r.target === "video" ? `, ${r.duration}s at ${r.fps} fps` : "") + (usedLlm ? ` · reconciled by ${usedLlm}` : "");
+  const extraFmt = { text: "" };
+  runHooks("showReconciled", r, extraFmt);
+  const summary = extraFmt.text || `${r.model}, ${r.steps} steps, CFG ${r.cfg}, ${r.sampler}/${r.scheduler}`;
+  $("#final-settings").textContent = `Will use ${summary}` + (usedLlm ? ` · reconciled by ${usedLlm}` : "");
   markStale();
 }
 
@@ -388,13 +370,7 @@ $("#send-btn").addEventListener("click", () => {
     form.vary_person.checked = !!r.vary_person;
     form.negative.value = mergeNegative(state.options.photo.default_negative, r.neg_additions);
   } else {
-    form.version.value = r.version;
-    markCaution(form.version);
-    form.preset.value = "";
-    if (!state.uploads.start_upload) { form.width.value = r.width; form.height.value = r.height; }
-    form.duration.value = r.duration;
-    form.fps.value = r.fps;
-    form.negative.value = mergeNegative(state.options.video.default_negative, r.neg_additions);
+    runHooks("sendBuilder", target, form, r);
   }
   showTab(target);
   setMsg($(".form-msg", form), "Final prompt and settings are in. Queue it when ready.");
@@ -483,34 +459,8 @@ async function refreshJobs() {
       renderJobs(jobs);
       if (finished) loadGallery();
     }
-    renderGpu(status);
+    runHooks("status", status);
   } catch (e) { /* transient network error: next poll retries */ }
-}
-
-function renderGpu(status) {
-  const pill = $("#gpu-pill");
-  if (status.gpu_shared === undefined) {
-    pill.hidden = true;
-    return;
-  }
-  pill.hidden = false;
-  if (status.gpu_shared === false) {
-    pill.className = "pill idle";
-    pill.textContent = "GPU: this computer's own";
-    return;
-  }
-  if (!status.scheduler_online) {
-    pill.className = "pill busy";
-    pill.textContent = state.options?.ui?.gpu_offline_label || "GPU offline";
-    return;
-  }
-  const waiting = Object.entries(status.gpu_queues || {}).filter(([, n]) => n > 0)
-    .map(([app, n]) => `${APP_LABEL[app] || app} ${n}`).join(", ");
-  const turnKey = state.options?.ui?.gpu_active_key;
-  const turn = turnKey ? status[turnKey] : null;
-  pill.className = turn ? "pill busy" : "pill idle";
-  pill.textContent = (turn ? `GPU turn: ${APP_LABEL[turn.app] || turn.app} (${turn.needs})` : "GPU free")
-    + (waiting ? ` · waiting: ${waiting}` : "");
 }
 
 async function openLog(id) {
@@ -522,7 +472,7 @@ async function openLog(id) {
 }
 $("#log-close").addEventListener("click", () => $("#log-dialog").close());
 
-/* ---------- gallery: tap selects; actions act on the selection ---------- */
+/* ---------- gallery ---------- */
 async function loadGallery() {
   const { items } = await api(`/api/media?kind=${state.galleryKind}`);
   state.galleryItems = items;
@@ -535,11 +485,11 @@ async function loadGallery() {
         el("img", { src: `/media/thumb/${encodeURI(it.rel)}`, alt: it.name, loading: "lazy" }),
         el("span", { className: "cap", textContent: it.name }));
       tile.dataset.rel = it.rel;
-      if (it.kind === "photo") {  // drag a photo tile onto the Compose canvas
+      if (it.kind === "photo") {
         tile.draggable = true;
         tile.addEventListener("dragstart", (ev) => ev.dataTransfer.setData("application/x-gs-rel", it.rel));
       }
-      if (it.kind === "video") tile.append(el("span", { className: "play", textContent: "▶ video" }));
+      runHooks("tileRender", tile, it);
       tile.addEventListener("click", () => selectItem(it));
       return tile;
     }));
@@ -550,19 +500,13 @@ async function loadGallery() {
 
 function updateActionButtons(root, it) {
   const isPhoto = it && it.kind === "photo";
-  const videoOn = !!(state.options?.features?.video && state.options?.video);
   const refOn = state.options?.photo?.supports_ref !== false;
   $$("[data-photo-only]", root).forEach((b) => (b.hidden = !isPhoto));
-  if (!videoOn) $$("[data-video-only]", root).forEach((b) => (b.hidden = true));
   if (!refOn) $$("[data-photo-ref-only]", root).forEach((b) => (b.hidden = true));
   $$("[data-recipe-only]", root).forEach((b) => (b.hidden = !(it && it.has_recipe)));
   const composing = $("main.layout").classList.contains("composing");
   $$("[data-compose-only]", root).forEach((b) => (b.hidden = !(composing && isPhoto)));
-  const twin = $("[data-act=twin]", root);
-  if (twin) {
-    twin.hidden = !(isPhoto && it.twin_endpoint && it.twin_label);
-    if (isPhoto && it.twin_label) twin.textContent = it.twin_label;
-  }
+  runHooks("actionButtons", root, it, isPhoto);
   const dl = $("[data-act=download]", root);
   if (it) dl.href = `/media/file/${encodeURI(it.rel)}?download=true`;
 }
@@ -578,27 +522,19 @@ function selectItem(it) {
 }
 
 async function selectFromQueue(rel) {
-  const kind = rel.endsWith(".mp4") ? "video" : "photo";
-  if (state.galleryKind !== kind) setGalleryKind(kind);
+  const ctx = { kind: "photo" };
+  runHooks("selectFromQueue", rel, ctx);
+  if (state.galleryKind !== ctx.kind) state.galleryKind = ctx.kind;
   state.selected = { rel };
   await loadGallery();
   $("#media-actions").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function setGalleryKind(kind) {
-  state.galleryKind = kind;
-  $$(".seg-btn").forEach((x) => x.classList.toggle("active", x.dataset.kind === kind));
-}
-$$(".seg-btn").forEach((b) => b.addEventListener("click", () => {
-  setGalleryKind(b.dataset.kind);
-  state.selected = null;
-  loadGallery();
-}));
-
 function openViewer(it) {
   const src = `/media/file/${encodeURI(it.rel)}`;
-  const media = it.kind === "video" ? el("video", { src, controls: true, autoplay: true, loop: true }) : el("img", { src, alt: it.name });
-  $(".viewer-body").replaceChildren(media);
+  const res = { node: null };
+  runHooks("viewerMedia", it, src, res);
+  $(".viewer-body").replaceChildren(res.node || el("img", { src, alt: it.name }));
   updateActionButtons($("#viewer"), it);
   $("#viewer").showModal();
 }
@@ -608,16 +544,6 @@ function closeViewer() {
 }
 $("#viewer-close").addEventListener("click", closeViewer);
 
-// Area of the default 768x432 clip, reshaped to the start image's aspect ratio (multiples of 16).
-function videoSizeFor(w, h) {
-  const area = 768 * 432;
-  const ar = w / h;
-  const clamp = (v) => Math.max(256, Math.min(1280, Math.round(v / 16) * 16));
-  return [clamp(Math.sqrt(area * ar)), clamp(Math.sqrt(area / ar))];
-}
-
-// Import into Prompt Builder: put back everything a library item was made with, so it can be tweaked
-// beyond what a reference image can do. Same seed, so small changes stay close to the original.
 function applyRecipe(r) {
   const form = $(`#${r.kind}-form`);
   const s = r.settings || {};
@@ -632,20 +558,16 @@ function applyRecipe(r) {
     set("lora", s.lora || "");
     set("lora_strength", s.lora_strength);
     set("ref_weight", s.ref_weight);
-    form.vary_person.checked = false; // the person it made is already in the prompt
+    form.vary_person.checked = false;
+    if (r.reference_upload) {
+      setAttachment("ref_upload", r.reference_upload, { thumb: `/api/uploads/${r.reference_upload}`, label: "from the original" });
+      set("ref_mode", s.ref_mode);
+    } else {
+      setAttachment("ref_upload", null);
+      form.ref_mode.value = "none";
+    }
   } else {
-    set("version", s.version);
-    markCaution(form.version);
-    set("duration", s.duration_sec);
-    set("fps", s.fps);
-  }
-  const key = r.kind === "photo" ? "ref_upload" : "start_upload";
-  if (r.reference_upload) {
-    setAttachment(key, r.reference_upload, { thumb: `/api/uploads/${r.reference_upload}`, label: "from the original" });
-    if (r.kind === "photo") set("ref_mode", s.ref_mode);
-  } else {
-    setAttachment(key, null);
-    if (r.kind === "photo") form.ref_mode.value = "none";
+    runHooks("applyRecipe", r, form, set);
   }
   state.builder[r.kind] = r.builder
     ? { values: r.builder.values, vision: r.builder.vision, reconciled_prompt: r.builder.reconciled_prompt } : null;
@@ -667,11 +589,11 @@ function applyRecipe(r) {
   }
 }
 
-// What Send needs besides the prompt when the reconcile came from an Import (the original's settings).
 function importedSendSettings(r) {
   const s = r.settings || {};
   const neg = (s.negative || "").split(",").map((x) => x.trim()).filter(Boolean);
-  const base = (r.kind === "photo" ? state.options.photo : state.options.video).default_negative.split(",").map((x) => x.trim());
+  const srcDefaults = r.kind === "photo" ? state.options.photo : (state.options[r.kind] || state.options.photo);
+  const base = (srcDefaults?.default_negative || "").split(",").map((x) => x.trim());
   return r.kind === "photo"
     ? { preset: "", vary_person: false, neg_additions: neg.filter((n) => !base.includes(n)), width: s.width, height: s.height }
     : { width: s.width, height: s.height, neg_additions: neg.filter((n) => !base.includes(n)) };
@@ -683,7 +605,7 @@ const ACTIONS = {
     const r = await api(`/api/library/recipe?rel=${encodeURIComponent(it.rel)}`);
     applyRecipe(r);
     closeViewer();
-    const kindLabel = r.kind === "photo" ? "Photo" : "Video";
+    const kindLabel = r.kind[0].toUpperCase() + r.kind.slice(1);
     const lost = r.had_reference && !r.reference_upload ? " Its reference image has expired; attach one again if you need it." : "";
     if (r.builder) {
       showTab("builder");
@@ -703,26 +625,6 @@ const ACTIONS = {
     showTab("photo");
     setMsg($(".form-msg", pf), `Reference attached (${r.ref_mode}). Change the mode under Advanced if needed.`);
   },
-  async "video-ref"(it) {
-    const r = await api("/api/media/use-as-reference", { method: "POST", body: { rel: it.rel } });
-    const vf = $("#video-form");
-    setAttachment("start_upload", r.upload, { thumb: `/media/thumb/${encodeURI(it.rel)}`, label: `${r.name} · ${r.width}×${r.height}` });
-    if (!["2.2", "2.2-14b"].includes(vf.version.value)) { vf.version.value = "2.2"; markCaution(vf.version); }
-    vf.preset.value = "";
-    [vf.width.value, vf.height.value] = videoSizeFor(r.width, r.height);
-    if (r.prompt && !vf.prompt.value.trim()) vf.prompt.value = r.prompt;
-    closeViewer();
-    showTab("video");
-    const prefix = state.options?.ui?.video_model_prefix || "Video";
-    setMsg($(".form-msg", vf), `Start image attached: ${prefix} ${vf.version.value}, clip shaped to match the photo. Add the motion to the prompt.`);
-  },
-  async twin(it) {
-    if (!it.twin_endpoint) return;
-    const job = await api(it.twin_endpoint, { method: "POST", body: { rel: it.rel } });
-    closeViewer();
-    refreshJobs();
-    setMsg($(".form-msg", $("#photo-form")), `Queued ${job.prompt}.`);
-  },
   async delete(it) {
     if (!confirm(`Delete ${it.name}? This removes the file.`)) return;
     await api(`/api/media/${encodeURI(it.rel)}`, { method: "DELETE" });
@@ -736,18 +638,27 @@ for (const root of [$("#media-actions"), $("#viewer")]) {
   root.addEventListener("click", async (ev) => {
     const btn = ev.target.closest("[data-act]");
     if (!btn || btn.dataset.act === "download" || !state.selected) return;
+    const handler = ACTIONS[btn.dataset.act];
+    if (!handler) return;
     try {
-      await ACTIONS[btn.dataset.act](state.selected);
+      await handler(state.selected);
     } catch (e) {
       alert(e.message);
     }
   });
 }
 
+window.GS = {
+  $, $$, el, api, state, APP_LABEL, setMsg, showTab, fillSelect, markCaution,
+  setAttachment, bindAttachmentInputs, bindJobForm, mergeNegative, setTarget,
+  refreshJobs, loadGallery, openViewer, closeViewer, ACTIONS,
+  on: (name, fn) => hooks[name].push(fn),
+};
+
 /* ---------- boot ---------- */
 (async () => {
   await loadOptions();
-  setTarget("photo"); // also draws the first preview
+  setTarget("photo");
   await Promise.all([loadTemplates(), loadGallery(), refreshJobs()]);
   setInterval(refreshJobs, 2000);
 })();

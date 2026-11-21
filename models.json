@@ -1,5 +1,5 @@
 {
-  "_about": "Every model Graphical Studio uses (SFW core edition). Other computers run `start_graphical_studio.sh --llm-sync` / `--model-sync` after a git pull. Digests pin the exact LLM build (`--llm-pin` refreshes them).",
+  "_about": "Every model Graphical Studio uses. Other computers run `start_graphical_studio.sh --llm-sync` / `--model-sync` after a git pull. Digests pin the exact LLM build (`--llm-pin` refreshes them).",
   "llms": {
     "instruct": [
       {

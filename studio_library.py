@@ -1,4 +1,4 @@
-"""The library: the exact recipe behind every generated photo and video.
+"""The library: the exact recipe behind every generated output.
 
 One SQLite file (outputs/library.db) shared by the web generator and the desktop app. Each row is one
 output file plus everything needed to rebuild it: the Prompt Builder state (dropdown values + vision)
@@ -20,25 +20,24 @@ from contextlib import closing
 from typing import Any
 
 import addons
-from wan_studio_helpers import OUTPUTS_DIR, PHOTOS_DIR, scan_outputs, scan_photo_outputs
+from studio_helpers import OUTPUTS_DIR, PHOTOS_DIR, _scan_dir_by_ext
 
 LIBRARY_DB = os.environ.get("GS_LIBRARY_DB", os.path.join(OUTPUTS_DIR, "library.db"))
 PHOTO_EXTS = (".jpg", ".jpeg", ".png", ".webp")
-VIDEO_EXTS = (".mp4",)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS assets (
     path             TEXT PRIMARY KEY,   -- absolute path of the output file
-    kind             TEXT NOT NULL,      -- photo | video
+    kind             TEXT NOT NULL,      -- output kind (photo, etc.)
     created          REAL NOT NULL,
-    source           TEXT NOT NULL,      -- web, web-builder, web-pair, desktop, desktop-builder, disk
+    source           TEXT NOT NULL,      -- web, web-builder, desktop, desktop-builder, disk...
     prompt           TEXT NOT NULL DEFAULT '',  -- prompt as queued (form text)
     effective_prompt TEXT NOT NULL DEFAULT '',  -- prompt as rendered (after cleanup / person variety)
     variation        TEXT NOT NULL DEFAULT '',  -- auto person variety added to the prompt, if any
     settings         TEXT NOT NULL DEFAULT '{}',  -- JSON: model/version, size, steps, cfg, seed, negative...
     builder          TEXT,               -- JSON: {"values", "vision", "target", "reconciled_prompt"} or NULL
-    reference        TEXT NOT NULL DEFAULT '',  -- reference / start image path used, if any
-    parent           TEXT NOT NULL DEFAULT ''   -- the asset this was made from (matching pair), if any
+    reference        TEXT NOT NULL DEFAULT '',  -- reference image path used, if any
+    parent           TEXT NOT NULL DEFAULT ''   -- optional parent asset path, if derived from another item
 );
 CREATE INDEX IF NOT EXISTS assets_kind_created ON assets (kind, created DESC);
 """
@@ -55,7 +54,10 @@ def _connect() -> sqlite3.Connection:
 
 def kind_of(path: str) -> str | None:
     ext = os.path.splitext(path)[1].lower()
-    return "photo" if ext in PHOTO_EXTS else "video" if ext in VIDEO_EXTS else None
+    for kind, (_dir, exts) in addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR).items():
+        if ext in exts:
+            return kind
+    return None
 
 
 def _row(r: sqlite3.Row) -> dict[str, Any]:
@@ -114,13 +116,18 @@ def list_assets(kind: str, limit: int = 300) -> list[dict[str, Any]]:
 
 def sync_from_disk(kind: str) -> int:
     """Give every output file on disk a row. Older photos get what photo_meta.json remembers."""
-    files = scan_photo_outputs(PHOTOS_DIR) if kind == "photo" else scan_outputs(OUTPUTS_DIR)
+    specs = addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR)
+    if kind not in specs:
+        return 0
+    base_dir, exts = specs[kind]
+    files = _scan_dir_by_ext(base_dir, exts)
     with closing(_connect()) as con:
         known = {r[0] for r in con.execute("SELECT path FROM assets WHERE kind = ?", (kind,))}
     new = [f for f in files if os.path.abspath(f["path"]) not in known]
     if not new:
         return 0
     legacy = _legacy_photo_meta() if kind == "photo" else {}
+    parent_keys = tuple(addons.REGISTRY.web.get("legacy_parent_keys", ()))
     for f in new:
         meta = legacy.get(os.path.basename(f["path"])) or {}
         settings = dict(meta.get("cfg") or {})
@@ -129,8 +136,7 @@ def sync_from_disk(kind: str) -> int:
         if meta.get("seed") is not None and "seed" not in settings:
             settings["seed"] = meta["seed"]
         source = str(meta.get("source") or ("desktop" if meta else "disk"))
-        pair_k = addons.REGISTRY.legacy_pair_meta_key
-        parent_name = meta.get("twin_of") or (meta.get(pair_k) if pair_k else "")
+        parent_name = next((meta[k] for k in parent_keys if meta.get(k)), "")
         record(f["path"], source=source, prompt=str(meta.get("base_prompt") or ""),
                effective_prompt=str(meta.get("effective_prompt") or meta.get("base_prompt") or ""),
                variation=str(meta.get("variation") or ""), settings=settings,
@@ -139,7 +145,7 @@ def sync_from_disk(kind: str) -> int:
 
 
 def _legacy_photo_meta() -> dict[str, dict]:
-    from wan_profiles import PHOTO_META_JSON
+    from studio_profiles import PHOTO_META_JSON
 
     try:
         with open(PHOTO_META_JSON, encoding="utf-8") as f:

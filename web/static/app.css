@@ -96,7 +96,7 @@ details.advanced { border: 1px solid var(--line); border-radius: 8px; padding: 8
 details.advanced summary { cursor: pointer; color: var(--text); font-size: 13px; padding: 2px 0; }
 details.advanced[open] summary { margin-bottom: 10px; }
 
-/* attached reference / start image */
+/* attached reference image */
 .attach { display: flex; gap: 10px; align-items: center; border: 1px solid var(--accent); border-radius: 8px; padding: 6px 8px; margin-bottom: 10px; background: #1b1d2b; }
 .attach img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; }
 .attach > div { flex: 1; min-width: 0; font-size: 13px; }

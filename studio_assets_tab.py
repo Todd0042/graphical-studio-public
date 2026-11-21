@@ -18,12 +18,12 @@ import re
 import shlex
 import threading
 
-import wan_assets as A
-import wan_library
-from wan_dpi import get_font, register_scale_listener, s
+import studio_assets as A
+import studio_library
+from studio_dpi import get_font, register_scale_listener, s
 import addons
-from wan_studio_helpers import open_path_default, reveal_in_file_manager, start_streaming_process
-from wan_tooltips import attach_tooltip
+from studio_helpers import open_path_default, reveal_in_file_manager, start_streaming_process
+from studio_tooltips import attach_tooltip
 
 KIND_CHOICES = [("auto", "Auto-detect from brief")] + list(A.KIND_LABELS.items())
 LLM_AUTO = "Auto (best installed)"
@@ -68,7 +68,7 @@ def build_assets_tab(parent, root):
     from tkinter import messagebox, ttk
     from PIL import Image, ImageTk
 
-    from wan_builder_dialog import build_outputs_panel
+    from studio_builder_dialog import build_outputs_panel
 
     os.makedirs(A.ASSETS_DIR, exist_ok=True)
     kind_label_to_key = {lbl: k for k, lbl in KIND_CHOICES}
@@ -104,7 +104,7 @@ def build_assets_tab(parent, root):
 
     def colour_model_list():
         """Models that spill onto the CPU (bigger than 8 GB VRAM) are red in the open list and in the box."""
-        from wan_themes import CAUTION_FG
+        from studio_themes import CAUTION_FG
 
         try:
             lb = f"{root.tk.call('ttk::combobox::PopdownWindow', cb_model)}.f.l"
@@ -172,10 +172,10 @@ def build_assets_tab(parent, root):
         if v_llm.get() not in vals:
             v_llm.set(LLM_AUTO)
         if have is None:
-            l_llm_note.configure(text="No LLM found (llama.cpp router or Ollama): offline matcher only")
+            l_llm_note.configure(text="Ollama not running: offline matcher only")
         else:
             best, why = A.pick_llm(read_code=v_read_repo.get())
-            l_llm_note.configure(text=f"Auto → {best}" if best else "No LLM installed: offline matcher")
+            l_llm_note.configure(text=f"Auto → {best}" if best else "No allow-listed LLM installed: offline matcher")
 
     # ── field editor (rebuilt per kind) ──────────────────────────────────────
     def build_fields(kind: str, values: dict[str, str] | None = None):
@@ -219,15 +219,16 @@ def build_assets_tab(parent, root):
             model, why = A.pick_llm(read_code=read_code, requested=requested) if use_llm else (None, "")
             try:
                 if model:
-                    with addons.gpu_session(f"assets {label.lower()}", needs=f"ollama:{model}",
-                                            on_status=lambda m: root.after(0, v_status.set, f"⏳ {m}")):
+                    with addons.execution_session(f"assets {label.lower()}", needs=f"ollama:{model}",
+                                                  on_status=lambda m: root.after(0, v_status.set, f"⏳ {m}")):
                         root.after(0, v_status.set, f"{label} with {model}...")
                         res = work(model, True)
                 else:
                     res = work("", False)
-            except (addons.gpu_session_error(), OSError) as exc:
+            except (addons.session_error(), OSError) as exc:
                 res = work("", False)
-                res.setdefault("notes", []).append(f"{addons.REGISTRY.gpu_unavailable_note} ({exc}); used the offline path.")
+                unavail = addons.REGISTRY.session.get("unavailable_note") or "Execution session unavailable"
+                res.setdefault("notes", []).append(f"{unavail} ({exc}); used the offline path.")
             except Exception as exc:  # show it instead of dying silently in a thread
                 res = {"error": str(exc)}
             root.after(0, finish, res)
@@ -256,6 +257,10 @@ def build_assets_tab(parent, root):
             return A.expand_brief(brief, kind=kind, repo_path=repo, llm=model, use_llm=use_llm)
 
         def done(res):
+            if res.get("refused"):
+                set_notes(res["notes"])
+                v_status.set("⚠ Refused by LLM safety filter.")
+                return
             state.update(kind=res["kind"], repo=res.get("repo"), brief=brief, llm_expand=res.get("llm", ""))
             if kind == "auto":
                 v_kind.set(A.KIND_LABELS[res["kind"]])
@@ -280,6 +285,10 @@ def build_assets_tab(parent, root):
 
         def done(plan):
             apply_plan(plan)
+            if plan.get("refused"):
+                set_notes(plan["notes"])
+                v_status.set("⚠ Refused by LLM safety filter.")
+                return
             state["llm_prompt"] = plan.get("llm", "")
             set_notes([f"• {r}" for r in plan["reasons"]] + plan["notes"] + ["Change anything below, then ▶ Generate."])
             v_status.set(f"Analyzed: {plan['model_label']}. Review the settings and prompt, then Generate.")
@@ -389,8 +398,8 @@ def build_assets_tab(parent, root):
             append_log(f"[Recipe] could not save: {exc}\n")
         try:
             plan = recipe.get("plan", {})
-            wan_library.record(out, source="desktop-assets", prompt=recipe.get("brief", ""), effective_prompt=plan.get("prompt", ""),
-                               settings={**plan, "kind": recipe.get("kind")})
+            studio_library.record(out, source="desktop-assets", prompt=recipe.get("brief", ""), effective_prompt=plan.get("prompt", ""),
+                                  settings={**plan, "kind": recipe.get("kind")})
         except Exception as exc:  # never break the render over the library
             append_log(f"[Library] could not record: {exc}\n")
         res = proc_holder.get("result") or {}
@@ -484,7 +493,7 @@ def build_assets_tab(parent, root):
                   + [f"• {r}" for r in rec.get("reasons", [])])
         v_status.set(f"Recipe loaded from {os.path.basename(p)}.")
 
-    _sc = addons.REGISTRY.private_desktop_shortcuts
+    _sc = addons.REGISTRY.desktop.get("shortcuts", {})
     _export_bg_dir = _sc.get("backgrounds_dir", "")
 
     def copy_to_export_bg():

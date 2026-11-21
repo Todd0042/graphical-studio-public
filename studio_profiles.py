@@ -228,7 +228,7 @@ def get_photo_meta(photo_path: str) -> dict:
 
 def extract_person_traits_from_prompt(prompt_text: str, variation_clause: str = "") -> str:
     """Extract person-defining cues (gender, hair, eyes, skin, build, age, face) cleanly for a profile."""
-    from wan_prompt_catalog import PERSON_FIELDS, ascertain_fields_from_prompt, extract_clause
+    from studio_prompt_catalog import PERSON_FIELDS, ascertain_fields_from_prompt, extract_clause
 
     asc = ascertain_fields_from_prompt(prompt_text or "")
     clauses = []

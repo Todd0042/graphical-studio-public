@@ -1,4 +1,4 @@
-"""Serial GPU job queue for the web wrapper.
+"""Serial execution job queue for the web wrapper.
 
 Jobs run one at a time in a background thread:
   photo:     renders the prompt as typed (Python cleanup only, like the desktop app)
@@ -22,8 +22,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 import addons
-import wan_library
-from wan_profiles import record_photo_meta
+import studio_library
+from studio_profiles import record_photo_meta
 from web.specs import finalize, turn_needs
 
 APP_ID = "graphical_studio"
@@ -153,7 +153,7 @@ class JobQueue:
     @staticmethod
     def _public(job: dict[str, Any]) -> dict[str, Any]:
         out = {k: job.get(k) for k in PUBLIC_FIELDS}
-        out["outputs"] = [p for p in job.get("outputs") or [] if os.path.isfile(p)]  # hide files deleted since
+        out["outputs"] = [p for p in job.get("outputs") or [] if os.path.isfile(p)]
         return out
 
     def _trim_locked(self) -> None:
@@ -173,9 +173,9 @@ class JobQueue:
 
     def _note(self, job: dict[str, Any], message: str) -> None:
         with self._cond:
-            if job["status"] in ACTIVE_STATES:  # the release note arrives after the job finished
+            if job["status"] in ACTIVE_STATES:
                 job["message"] = message
-            self._logs[job["id"]].append(f"[GPU] {message}")
+            self._logs[job["id"]].append(f"[Session] {message}")
 
     def _next_job(self) -> Optional[dict[str, Any]]:
         with self._cond:
@@ -193,12 +193,12 @@ class JobQueue:
             if job is None:
                 continue
             plan = job["plan"]
-            first_needs = turn_needs(plan)  # the chosen LLM (Ollama) or the whole card
-            if addons.REGISTRY.gpu_session_factory is not None:
+            first_needs = turn_needs(plan)
+            if addons.REGISTRY.session.get("session_factory") is not None:
                 with self._cond:
-                    job.update(status="waiting_gpu", message="Waiting for a GPU turn...")
+                    job.update(status="waiting_gpu", message="Waiting for a session turn...")
                     self._save_locked()
-            turn = addons.gpu_session(
+            turn = addons.execution_session(
                 f"{job['kind']} {job['id']}", needs=first_needs, app_id=APP_ID,
                 on_status=lambda msg, j=job: self._note(j, msg),
                 is_cancelled=lambda j=job: bool(j["cancel"]) or self._stopping,
@@ -209,10 +209,10 @@ class JobQueue:
             except InterruptedError as exc:
                 with self._cond:
                     self._finish_locked(job, "cancelled", str(exc))
-            except Exception as exc:  # generation/prompt errors fail the job, never the runner
+            except Exception as exc:
                 with self._cond:
                     status = "cancelled" if job["cancel"] else "failed"
-                    self._finish_locked(job, status, "Could not run on the GPU.", None if job["cancel"] else str(exc)[:400])
+                    self._finish_locked(job, status, "Could not run job.", None if job["cancel"] else str(exc)[:400])
             finally:
                 turn.release()
 
@@ -220,13 +220,15 @@ class JobQueue:
         plan = job["plan"]
         k = addons.llm_ui_strings()["result_model_key"]
         llm = plan.get(f"{k}_resolved") or plan.get("llm_resolved") or "the Python fallback"
-        pp = addons.pair_provider()
+        turn_note_fn = addons.REGISTRY.web.get("job_turn_note")
         if plan["kind"] == "reconcile":
             self._note(job, f"{llm} is reconciling your dropdowns with your vision...")
         elif plan["kind"] == "fill":
             self._note(job, f"{llm} is filling the dropdowns from your vision...")
-        elif pp and plan["kind"] == pp.kind:
-            self._note(job, pp.turn_note(plan))
+        elif turn_note_fn:
+            custom_note = turn_note_fn(plan)
+            if custom_note:
+                self._note(job, custom_note)
         fin = finalize(plan)
         with self._cond:
             job["notes"] = list(plan["notes"]) + fin["notes"]
@@ -308,21 +310,20 @@ class JobQueue:
             self._record_outputs(job)
 
     def _record_outputs(self, job: dict[str, Any]) -> None:
-        """Library row per output (the recipe for Import into Prompt Builder); photo_meta.json too,
-        which the desktop app's Save Profile still reads."""
+        """Library row per output; photo_meta.json too for Saved Character Profiles."""
         plan, meta = job["plan"], job["plan"].get("meta")
         lib = plan.get("library") or {}
+        meta_kinds = {"photo", *tuple(addons.REGISTRY.web.get("meta_job_kinds") or ())}
         for path in job["outputs"]:
             try:
-                wan_library.record(
+                studio_library.record(
                     path, source=lib.get("source", "web"), prompt=lib.get("prompt") or plan["prompt"],
                     effective_prompt=job.get("effective_prompt") or "", variation=lib.get("variation", ""),
                     settings=job.get("cfg"), builder=lib.get("builder"), reference=lib.get("reference", ""),
                     parent=lib.get("parent", ""))
-            except Exception as exc:  # a library hiccup must never fail a finished render
+            except Exception as exc:
                 self._logs[job["id"]].append(f"[Library] could not record {os.path.basename(path)}: {exc}")
-            pp = addons.pair_provider()
-            if meta and (job["kind"] == "photo" or (pp and job["kind"] == pp.kind)):
+            if meta and job["kind"] in meta_kinds:
                 record_photo_meta(path, meta)
 
 

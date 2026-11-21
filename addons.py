@@ -1,7 +1,7 @@
 """Optional extension registry for Graphical Studio.
 
-Core ships neutral SFW-only defaults and runs renders directly. When the optional private ``extras``
-package is present alongside the repo, ``addons`` loads it once at import time and exposes its
+Core ships clean image-only defaults and executes local tasks directly. When the optional ``extras``
+package is present alongside the repository, ``addons`` loads it once at import time and exposes its
 registered extensions. When ``extras`` is absent, every helper returns the safe core default.
 """
 
@@ -15,109 +15,17 @@ from typing import Any, Callable
 class AddonRegistry:
     enabled: bool = False
     manifest_overlay: Callable[[dict], dict] | None = None
-
-    # Image / asset models
-    photo_model_options: list[tuple[str, str]] | None = None
-    default_photo_model: str | None = None
-    photo_model_registry: dict[str, dict] | None = None
-    photo_model_settings: dict[str, dict] | None = None
-    photo_benchmark_targets: list[str] | None = None
-    photo_cli_builder: Callable[[dict], list[str]] | None = None
-    photo_supports_ipadapter: bool = False
-    lora_exclude_prefix: str | None = None
-    builtin_ckpts: set[str] | None = None
-    fallback_model_key: str | None = None
-
-    asset_models: dict[str, dict] | None = None
-    asset_model_settings: dict[str, dict] | None = None
-    asset_fallback_order: list[str] | None = None
-    asset_llm_ranking: list[tuple[str, str]] | None = None
-    asset_choose_model: Callable[[str, dict[str, str], str], tuple[str, str] | None] | None = None
-    asset_checkpoint_renderer: Callable[..., Any] | None = None
-    asset_prompt_system: str | None = None
-    anime_asset_models: set[str] = field(default_factory=set)
-    anime_photo_model: str | None = None
-    legacy_pair_meta_key: str | None = None
-
-    # Video extensions (absent in image-only public edition)
-    video_enabled: bool = False
-    video_model_options: list[tuple[str, str]] | None = None
-    video_caution_models: frozenset[str] = field(default_factory=frozenset)
-    video_i2v_versions: frozenset[str] = field(default_factory=frozenset)
-    video_model_settings: dict[str, dict] | None = None
-    video_presets: dict[str, tuple[int, int, float, int]] | None = None
-    video_default_negative: str = ""
-    video_gen_script: str | None = None
-    video_slug_prefix: str | None = None
-    video_cli_builder: Callable[[dict], list[str]] | None = None
-    video_motion_fields: list[tuple] | None = None
-    video_tooltips: dict[str, str] = field(default_factory=dict)
-    video_ui_strings: dict[str, str] = field(default_factory=dict)
-    default_sync_groups: tuple[str, ...] = ("assets",)
-    check_sync_groups: tuple[str, ...] = ("assets",)
-    startup_sync_groups: tuple[str, ...] = ("assets",)
-    extra_model_cli_args: Callable[[Any], None] | None = None
-    extra_model_sync_groups: Callable[[Any], list[str]] | None = None
-
-    # Catalog, presets, tooltips, vibe
-    extend_catalog: Callable[[list, list, list, list], None] | None = None
-    extend_presets: Callable[[list], list] | None = None
-    tooltips_override: dict[str, str] = field(default_factory=dict)
-    extend_tooltips: Callable[[dict[str, str]], None] | None = None
-    vibe_extra_triggers: list[tuple[str, set[str]]] = field(default_factory=list)
-    vibe_extra_aliases: dict[str, set[str]] = field(default_factory=dict)
-    vibe_llm_system_prompt: str | None = None
-    post_fill_vision: Callable[[dict[str, str], str, dict[str, str], bool, list[str]], None] | None = None
-    anti_zoom_neg_extra: str = ""
-
-    # Compatibility, routing, rectifier, reconcile
-    classify_intent: Callable[[dict[str, str], str, dict], dict] | None = None
-    choose_photo_model: Callable[[dict, str], str] | None = None
-    extra_content_negatives: Callable[[dict], list[str]] | None = None
-    filter_photo_compat: Callable[[dict, str, str], tuple[str | None, str | None]] | None = None
-    video_compat_overrides: Callable[[dict, bool], dict] | None = None
-    extend_conflict_groups: Callable[[dict], dict] | None = None
-    rectifier_llm_messages: Callable[[str, dict[str, str], str], tuple[str, str]] | None = None
-    attach_rectifier_compat: Callable[[Any], None] | None = None
-    attach_reconcile_compat: Callable[[Any], None] | None = None
-    attach_specs_compat: Callable[[Any], None] | None = None
-    attach_models_compat: Callable[[Any], None] | None = None
-    resolve_llm_override: Callable[[str | None], tuple[str | None, str]] | None = None
-    reconcile_system_prompt: str | None = None
-    reconcile_post_check: Callable[..., str] | None = None
-    run_llm_override: Callable[..., tuple[str | None, str, str]] | None = None
-
-    # LLM selection / execution
-    llm_manifest_key: str = "instruct"
-    llm_ui_strings: dict[str, str] = field(default_factory=dict)
-    legacy_llm_runners: tuple[Callable[..., tuple[str | None, str]], ...] = ()
-    extra_llm_hints: tuple[str, ...] = ()
-    allow_refusal_fallback: bool = False
-    llm_missing_note: str | None = None
-    llm_offline_note: str | None = None
-
-    # Features & environment integrations
-    pair_provider: Any = None
-    self_test_hook: Callable[[], None] | None = None
-    video_compat_banner: Callable[[dict], str | None] | None = None
-    photo_tab_title: str | None = None
-    photo_ready_status: str | None = None
-    private_web_defaults: dict[str, Any] = field(default_factory=dict)
-    private_desktop_shortcuts: dict[str, Any] = field(default_factory=dict)
-    gpu_app_labels: dict[str, str] = field(default_factory=dict)
-    gpu_competing_apps: str | None = None
-    gpu_session_factory: Callable[..., Any] | None = None
-    gpu_session_error_type: type[Exception] = RuntimeError
-    gpu_status_provider: Callable[[], dict[str, Any]] | None = None
-    desktop_session_factory: Callable[[Any, Callable[[str], None]], Any] | None = None
-    desktop_gpu_status: Callable[[], str | None] | None = None
-    gpu_offline_label: str = ""
-    gpu_active_key: str = ""
-    gpu_unavailable_note: str = "GPU unavailable"
+    models: dict[str, Any] = field(default_factory=dict)
+    llm: dict[str, Any] = field(default_factory=dict)
+    catalog: dict[str, Any] = field(default_factory=dict)
+    desktop: dict[str, Any] = field(default_factory=dict)
+    web: dict[str, Any] = field(default_factory=dict)
+    session: dict[str, Any] = field(default_factory=dict)
+    compat: dict[str, Callable[[Any], None]] = field(default_factory=dict)
 
 
 class DirectSession:
-    """Direct local execution context when no multi-app GPU extension is loaded."""
+    """Direct local execution context when no external session extension is loaded."""
 
     def __init__(self, *_args, **_kwargs) -> None:
         self.lease_id: str | None = None
@@ -181,36 +89,14 @@ def _load_registry() -> AddonRegistry:
 REGISTRY = _load_registry()
 
 
-def gpu_session(job_id: str = "", *, needs: str = "exclusive", app_id: str = "graphical_studio", **kwargs):
-    if REGISTRY.gpu_session_factory:
-        return REGISTRY.gpu_session_factory(job_id, needs=needs, app_id=app_id, **kwargs)
-    return DirectSession()
-
-
-def gpu_session_error() -> type[Exception]:
-    return REGISTRY.gpu_session_error_type
-
-
-def desktop_session(root, on_status: Callable[[str], None]):
-    if REGISTRY.desktop_session_factory:
-        return REGISTRY.desktop_session_factory(root, on_status)
-    return _DirectDesktopSession()
-
-
-def desktop_status_label() -> str | None:
-    if REGISTRY.desktop_gpu_status:
-        return REGISTRY.desktop_gpu_status()
-    return None
-
-
-def gpu_web_status() -> dict[str, Any] | None:
-    if REGISTRY.gpu_status_provider:
-        return REGISTRY.gpu_status_provider()
-    return None
-
-
 def is_addon_enabled() -> bool:
     return REGISTRY.enabled
+
+
+def attach_compat(name: str, mod: Any) -> None:
+    fn = REGISTRY.compat.get(name)
+    if fn:
+        fn(mod)
 
 
 def merge_manifest(base: dict) -> dict:
@@ -219,8 +105,43 @@ def merge_manifest(base: dict) -> dict:
     return base
 
 
-def pair_provider():
-    return REGISTRY.pair_provider
+def execution_session(job_id: str = "", *, needs: str = "exclusive", app_id: str = "graphical_studio", **kwargs):
+    factory = REGISTRY.session.get("session_factory")
+    if factory:
+        return factory(job_id, needs=needs, app_id=app_id, **kwargs)
+    return DirectSession()
+
+
+def session_error() -> type[Exception]:
+    return REGISTRY.session.get("session_error_type", RuntimeError)
+
+
+def desktop_session(root, on_status: Callable[[str], None]):
+    factory = REGISTRY.session.get("desktop_session_factory")
+    if factory:
+        return factory(root, on_status)
+    return _DirectDesktopSession()
+
+
+def desktop_status_label() -> str | None:
+    fn = REGISTRY.session.get("desktop_status")
+    return fn() if fn else None
+
+
+def web_status() -> dict[str, Any] | None:
+    fn = REGISTRY.web.get("status_overlay")
+    return fn() if fn else None
+
+
+def media_kind_specs(outputs_dir: str, photos_dir: str) -> dict[str, tuple[str, tuple[str, ...]]]:
+    specs: dict[str, tuple[str, tuple[str, ...]]] = {
+        "photo": (photos_dir, (".jpg", ".jpeg", ".png", ".webp")),
+    }
+    extra = REGISTRY.web.get("media_kinds")
+    if extra:
+        for k, val in extra.items():
+            specs[k] = val(outputs_dir, photos_dir) if callable(val) else val
+    return specs
 
 
 def llm_ui_strings() -> dict[str, str]:
@@ -242,6 +163,7 @@ def llm_ui_strings() -> dict[str, str]:
         "result_used_key": "used_llm",
         "storage_key": "gs-llm",
     }
-    if REGISTRY.llm_ui_strings:
-        defaults.update(REGISTRY.llm_ui_strings)
+    extra = REGISTRY.llm.get("ui_strings")
+    if extra:
+        defaults.update(extra)
     return defaults

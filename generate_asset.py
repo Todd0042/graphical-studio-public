@@ -50,8 +50,8 @@ _BASE_ASSET_MODELS = {
 
 def _build_asset_models() -> dict[str, dict]:
     merged = dict(_BASE_ASSET_MODELS)
-    if addons.REGISTRY.asset_models:
-        merged.update(addons.REGISTRY.asset_models)
+    if addons.REGISTRY.models.get("asset_models"):
+        merged.update(addons.REGISTRY.models["asset_models"])
     return merged
 
 
@@ -197,10 +197,10 @@ def render(args) -> "object":
         model = g["UnetLoaderGGUF"]().load_unet(spec["unet"])[0]
         vae = nodes.VAELoader().load_vae(FLUX_FILES["vae"])[0]
         cfg = 1.0
-    elif addons.REGISTRY.asset_checkpoint_renderer:
-        model, positive, negative, vae, cfg = addons.REGISTRY.asset_checkpoint_renderer(args, spec, tag)
+    elif addons.REGISTRY.models.get("asset_checkpoint_renderer"):
+        model, positive, negative, vae, cfg = addons.REGISTRY.models["asset_checkpoint_renderer"](args, spec, tag)
     else:
-        raise SystemExit(f"Unsupported engine for public edition: {spec['engine']}")
+        raise SystemExit(f"Unsupported engine: {spec['engine']}")
 
     print(f"{tag} Sampling {args.steps} steps @ {args.width}x{args.height} (cfg={cfg}, {args.sampler}/{args.scheduler})...", flush=True)
     t0 = time.time()

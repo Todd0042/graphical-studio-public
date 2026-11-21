@@ -1,11 +1,11 @@
-"""Shared CLI builders, file scanners, and ffmpeg thumbnail extractor for Graphical Studio."""
+"""Shared CLI builders, file scanners, and OS desktop helpers for Graphical Studio."""
 
 from datetime import datetime
-import hashlib
 import os
 import queue
 import re
 import subprocess
+import sys
 import threading
 
 import addons
@@ -14,8 +14,7 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME_DIR = os.path.expanduser("~")
 
 VENV_PYTHON = os.path.join(ROOT_DIR, ".venv", "bin", "python")
-GEN_SCRIPT = addons.REGISTRY.video_gen_script or ""
-PHOTO_SCRIPT = os.path.join(ROOT_DIR, "generate_photo.py") if addons.REGISTRY.photo_cli_builder else ""
+PHOTO_SCRIPT = os.path.join(ROOT_DIR, "generate_photo.py") if addons.REGISTRY.models.get("photo_cli_builder") else ""
 ASSET_SCRIPT = os.path.join(ROOT_DIR, "generate_asset.py")
 OUTPUTS_DIR = os.path.join(ROOT_DIR, "outputs")
 PHOTOS_DIR = os.path.join(OUTPUTS_DIR, "photos")
@@ -26,32 +25,13 @@ LORAS_DIR = os.path.join(ROOT_DIR, "ComfyUI", "models", "loras")
 
 def list_photo_loras() -> list[str]:
     """Optional LoRAs compatible with the checkpoint photo generator."""
-    if not addons.REGISTRY.photo_supports_ipadapter or not os.path.isdir(LORAS_DIR):
+    if not addons.REGISTRY.models.get("supports_lora") or not os.path.isdir(LORAS_DIR):
         return []
-    excl = (addons.REGISTRY.lora_exclude_prefix or "").lower()
+    excl = (addons.REGISTRY.models.get("lora_exclude_prefix") or "").lower()
     return sorted(
         f for f in os.listdir(LORAS_DIR)
         if f.endswith(".safetensors") and (not excl or not f.lower().startswith(excl))
     )
-
-
-MODEL_OPTIONS = list(addons.REGISTRY.video_model_options or [])
-CAUTION_MODELS = addons.REGISTRY.video_caution_models
-I2V_VERSIONS = addons.REGISTRY.video_i2v_versions
-VIDEO_MODEL_SETTINGS = dict(addons.REGISTRY.video_model_settings or {})
-PRESETS = dict(addons.REGISTRY.video_presets or {})
-
-
-def duration_to_frames(seconds: float, fps: int) -> tuple[int, float]:
-    """Convert desired duration in seconds to nearest valid 4k+1 frame count and actual seconds."""
-    fps = max(1, int(fps))
-    sec = max(0.0, float(seconds))
-    raw = round(sec * fps)
-    if sec <= 0.08 or raw <= 1:
-        return 1, round(1.0 / fps, 2)
-    k = max(1, round((raw - 1) / 4))
-    frames = 4 * k + 1
-    return frames, round(frames / fps, 2)
 
 
 CORE_PHOTO_MODEL_OPTIONS = [
@@ -67,9 +47,9 @@ CORE_PHOTO_MODEL_SETTINGS = {
     "qwen_image": {"steps": 8, "cfg": 1.0, "guidance": 0.0, "sampler": "euler", "scheduler": "simple"},
 }
 
-PHOTO_MODEL_OPTIONS = list(addons.REGISTRY.photo_model_options or CORE_PHOTO_MODEL_OPTIONS)
+PHOTO_MODEL_OPTIONS = list(addons.REGISTRY.models.get("photo_options") or CORE_PHOTO_MODEL_OPTIONS)
 
-BUILTIN_CKPTS = set(addons.REGISTRY.builtin_ckpts or set())
+BUILTIN_CKPTS = set(addons.REGISTRY.models.get("builtin_ckpts") or set())
 
 REF_TARGET_OPTIONS = [
     ("none", "None (Text Prompt Only)"),
@@ -89,11 +69,12 @@ REF_STYLE_OPTIONS = [
 def get_photo_model_options() -> list[tuple[str, str]]:
     """Return built-in models plus any extra checkpoints when enabled."""
     opts = list(PHOTO_MODEL_OPTIONS)
-    if addons.REGISTRY.photo_model_options and os.path.isdir(CHECKPOINTS_DIR):
+    if addons.REGISTRY.models.get("photo_options") and os.path.isdir(CHECKPOINTS_DIR):
         for fn in sorted(os.listdir(CHECKPOINTS_DIR)):
             if fn.endswith(".safetensors") and fn not in BUILTIN_CKPTS:
                 opts.insert(-1, (fn, f"Custom Checkpoint: {fn}"))
     return opts
+
 
 PHOTO_PRESETS = {
     "16:9 HD Background (1280x720)": (1280, 720),
@@ -102,23 +83,18 @@ PHOTO_PRESETS = {
     "Square 1:1 Icon (1024x1024)": (1024, 1024),
 }
 
-ANIME_PREFIX = (
-    "High-detail Japanese anime visual novel cinematic cutscene, Makoto Shinkai and Persona 5 aesthetic, "
-    "crisp dark ink linework, multi-layered cel shading, expressive eyes with white catchlights, "
-)
 ANIME_BG_STYLE = (
     "crisp dark ink linework, multi-layered cel shading, Makoto Shinkai and Persona 5 anime background aesthetic, "
     "atmospheric lighting, empty room, no humans, "
 )
 ANIME_GREENSCREEN_CHAR_STYLE = (
-    "1girl, waist-up front-facing anime visual novel character portrait sprite, symmetrical level shoulders, "
+    "waist-up front-facing anime visual novel character portrait sprite, symmetrical level shoulders, "
     "isolated on pure flat solid bright green (#00FF00) chroma-key background, crisp dark cel-shaded outlines, "
 )
 AMERICAN_REALISTIC_STYLE = (
     "RAW candid photo, photorealistic, modern American lifestyle photography, shot on Sony A7R V 35mm f/1.8 lens, "
     "natural skin texture with subtle pores, soft indoor ring-light and warm ambient window light, shallow depth of field, "
 )
-DEFAULT_NEGATIVE = addons.REGISTRY.video_default_negative
 PHOTO_DEFAULT_NEGATIVE = "blurry, deformed, bad proportions, text, watermark, signature, frame, border"
 
 
@@ -135,26 +111,16 @@ def _slugify_output(base_dir: str, prefix: str, prompt: str, custom_name: str, e
     return os.path.join(base_dir, stem)
 
 
-def slugify_prompt(prompt: str, custom_name: str = "", version: str = "2.2") -> str:
-    prefix = addons.REGISTRY.video_slug_prefix or "clip"
-    return _slugify_output(OUTPUTS_DIR, f"{prefix}{version.replace('.', '')}", prompt, custom_name, ".mp4")
-
-
 def slugify_photo_prompt(prompt: str, custom_name: str = "", model: str | None = None) -> str:
-    default_m = addons.REGISTRY.default_photo_model or "flux2_klein"
+    default_m = addons.REGISTRY.models.get("default_photo_model") or "flux2_klein"
     return _slugify_output(PHOTOS_DIR, f"photo_{model or default_m}", prompt, custom_name, ".jpg")
 
 
-def build_cli_command(cfg: dict) -> list[str]:
-    if addons.REGISTRY.video_cli_builder:
-        return addons.REGISTRY.video_cli_builder(cfg)
-    raise RuntimeError("Video generation is not enabled in the public edition.")
-
-
 def build_photo_cli_command(cfg: dict) -> list[str]:
-    if addons.REGISTRY.photo_cli_builder:
-        return addons.REGISTRY.photo_cli_builder(cfg)
-    default_m = addons.REGISTRY.default_photo_model or "flux2_klein"
+    cli_builder = addons.REGISTRY.models.get("photo_cli_builder")
+    if cli_builder:
+        return cli_builder(cfg)
+    default_m = addons.REGISTRY.models.get("default_photo_model") or "flux2_klein"
     model = str(cfg.get("model", default_m)).strip()
     if model not in CORE_PHOTO_MODEL_SETTINGS:
         model = default_m
@@ -201,31 +167,8 @@ def _scan_dir_by_ext(target_dir: str, exts: tuple[str, ...]) -> list[dict]:
     return rows
 
 
-def scan_outputs(output_dir: str = OUTPUTS_DIR) -> list[dict]:
-    return _scan_dir_by_ext(output_dir, (".mp4",))
-
-
 def scan_photo_outputs(photo_dir: str = PHOTOS_DIR) -> list[dict]:
     return _scan_dir_by_ext(photo_dir, (".jpg", ".jpeg", ".png", ".webp"))
-
-
-def extract_thumbnail(video_path: str, cache_dir: str = THUMB_DIR) -> str | None:
-    if not os.path.isfile(video_path):
-        return None
-    os.makedirs(cache_dir, exist_ok=True)
-    st = os.stat(video_path)
-    key = hashlib.sha1(f"{video_path}:{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()[:16]
-    thumb = os.path.join(cache_dir, f"{key}.jpg")
-    if os.path.isfile(thumb) and os.path.getsize(thumb) > 500:
-        return thumb
-    for seek in ("00:00:01.5", "00:00:00"):
-        res = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-ss", seek, "-i", video_path, "-vframes", "1", "-q:v", "3", thumb],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        )
-        if res.returncode == 0 and os.path.isfile(thumb) and os.path.getsize(thumb) > 500:
-            return thumb
-    return None
 
 
 def start_streaming_process(cmd: list[str], out_q: queue.Queue) -> subprocess.Popen:
@@ -253,16 +196,13 @@ def start_streaming_process(cmd: list[str], out_q: queue.Queue) -> subprocess.Po
 
 
 def open_path_default(path: str):
-    try:
-        subprocess.Popen(["xdg-open", path], start_new_session=True)
-    except Exception:
-        subprocess.Popen(["mpv", path], start_new_session=True)
+    subprocess.Popen(["xdg-open", path], start_new_session=True)
 
 
 def reveal_in_file_manager(path: str | None, fallback_dir: str):
     import shutil
 
-    cmd = addons.REGISTRY.private_desktop_shortcuts.get("reveal_file_cmd", "")
+    cmd = addons.REGISTRY.desktop.get("shortcuts", {}).get("reveal_file_cmd", "")
     if cmd and shutil.which(cmd):
         if path and os.path.isfile(path):
             subprocess.Popen([cmd, "--select", path], start_new_session=True)
@@ -286,3 +226,5 @@ def reveal_in_file_manager(path: str | None, fallback_dir: str):
     os.makedirs(target, exist_ok=True)
     open_path_default(target)
 
+
+addons.attach_compat("studio_helpers", sys.modules[__name__])

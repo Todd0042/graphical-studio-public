@@ -39,7 +39,8 @@ def manifest() -> dict:
 
 def prompt_llms() -> list[dict]:
     llms = manifest()["llms"]
-    return list(llms.get(addons.REGISTRY.llm_manifest_key) or llms.get("instruct") or [])
+    key = addons.REGISTRY.llm.get("manifest_key", "instruct")
+    return list(llms.get(key) or llms.get("instruct") or [])
 
 
 def default_prompt_llm() -> str:
@@ -74,8 +75,9 @@ def prompt_llm_options() -> list[dict]:
 
 def resolve_prompt_llm(requested: str | None) -> tuple[str | None, str]:
     """The Ollama model to run: strictly allow-listed from models.json (or registered add-on)."""
-    if addons.REGISTRY.resolve_llm_override:
-        return addons.REGISTRY.resolve_llm_override(requested)
+    override = addons.REGISTRY.llm.get("resolve_override")
+    if override:
+        return override(requested)
     items = prompt_llms()
     want = (requested or "").strip() or default_prompt_llm()
     if want not in {d["name"] for d in items}:
@@ -129,7 +131,7 @@ def llm_report(include_extras: bool = False) -> list[str]:
         elif pins.get(name) and not have[name.lower()].startswith(pins[name]):
             lines.append(f"different build: {name} (this computer {have[name.lower()][:12]}, list {pins[name]})")
     listed = {e["name"].lower() for e in prompt_llms() + manifest()["llms"]["extras"]}
-    hints = addons.REGISTRY.extra_llm_hints
+    hints = addons.REGISTRY.llm.get("inventory_hints", ())
     for name in sorted(have):
         if hints and name not in listed and not name.endswith(":latest") and any(h in name for h in hints):
             lines.append(f"installed but not in the list (not used): {name}")
@@ -168,7 +170,7 @@ def llm_pin() -> int:
         print("Ollama isn't running.")
         return 1
     data = json.loads(open(MANIFEST, encoding="utf-8").read())
-    key = addons.REGISTRY.llm_manifest_key
+    key = addons.REGISTRY.llm.get("manifest_key", "instruct")
     pins = {}
     for e in prompt_llms() + manifest()["llms"]["extras"]:
         digest = have.get(e["name"].lower(), "")
@@ -255,7 +257,7 @@ def _setup_group(group: str) -> None:
 def startup_notice() -> str:
     """One line for the app's status bar; empty when everything listed is here."""
     issues = [ln for ln in llm_report() if not ln.startswith("installed but not")]
-    issues += files_report(list(addons.REGISTRY.startup_sync_groups))
+    issues += files_report(list(addons.REGISTRY.models.get("startup_groups", ("assets",))))
     if not issues:
         return ""
     return f"Models out of sync ({len(issues)}): {issues[0]}" + (" ..." if len(issues) > 1 else "") + \
@@ -268,8 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="with --llm-sync: include the optional extras")
     ap.add_argument("--update", action="store_true", help="with --llm-sync: re-pull LLMs whose build differs")
     ap.add_argument("--model-sync", action="store_true", help="download missing ComfyUI model files")
-    if addons.REGISTRY.extra_model_cli_args:
-        addons.REGISTRY.extra_model_cli_args(ap)
+    cli_hook = addons.REGISTRY.models.get("cli_args_hook")
+    if cli_hook:
+        cli_hook(ap)
     ap.add_argument("--assets", action="store_true", help="with --model-sync: include Asset Studio models (FLUX, Qwen-Image)")
     ap.add_argument("--models-check", action="store_true", help="report what's missing or different")
     ap.add_argument("--llm-pin", action="store_true", help="record installed LLM digests in models.json")
@@ -280,22 +283,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.llm_sync:
         rc |= llm_sync(include_extras=args.all, update=args.update)
     if args.model_sync:
-        groups = list(addons.REGISTRY.default_sync_groups)
-        if addons.REGISTRY.extra_model_sync_groups:
-            for g in addons.REGISTRY.extra_model_sync_groups(args):
+        groups = list(addons.REGISTRY.models.get("sync_groups", ("assets",)))
+        sg_hook = addons.REGISTRY.models.get("sync_groups_hook")
+        if sg_hook:
+            for g in sg_hook(args):
                 if g not in groups:
                     groups.append(g)
         if args.assets and "assets" not in groups:
             groups.append("assets")
         rc |= model_sync(groups)
     if args.models_check or not (args.llm_sync or args.model_sync or args.llm_pin):
-        lines = llm_report(include_extras=args.all) + files_report(list(addons.REGISTRY.check_sync_groups))
+        lines = llm_report(include_extras=args.all) + files_report(list(addons.REGISTRY.models.get("check_groups", ("assets",))))
         print("\n".join(lines) or "Everything in models.json is here.")
     return rc
 
 
-if addons.REGISTRY.attach_models_compat:
-    addons.REGISTRY.attach_models_compat(sys.modules[__name__])
+addons.attach_compat("studio_models", sys.modules[__name__])
 
 
 if __name__ == "__main__":

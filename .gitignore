@@ -15,8 +15,6 @@ ComfyUI
 *.jpeg
 *.png
 *.webp
-*.mp4
-*.mov
 !graphical_studio_icon.png
 ui_settings.json
 builder_templates.json

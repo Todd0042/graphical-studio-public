@@ -20,7 +20,7 @@ fi
 # Model sync (models.json): --llm-sync [--all] [--update], --model-sync [--assets], --models-check, --llm-pin.
 # These run and exit without opening the app.
 if [[ " $* " =~ \ --(llm-sync|model-sync|models-check|llm-pin)\  ]]; then
-  exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/wan_models.py" "$@"
+  exec "$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/studio_models.py" "$@"
 fi
 
 if [[ " $* " == *" --low-impact "* ]]; then
@@ -30,7 +30,7 @@ if [[ " $* " == *" --low-impact "* ]]; then
   for a in "$@"; do
     [[ "$a" == "--low-impact" ]] || args+=("$a")
   done
-  exec nice -n 19 ionice -c 3 "$GUI_PYTHON" "$ROOT_DIR/wan_gui.py" "${args[@]}"
+  exec nice -n 19 ionice -c 3 "$GUI_PYTHON" "$ROOT_DIR/studio_gui.py" "${args[@]}"
 fi
 
-exec "$GUI_PYTHON" "$ROOT_DIR/wan_gui.py" "$@"
+exec "$GUI_PYTHON" "$ROOT_DIR/studio_gui.py" "$@"

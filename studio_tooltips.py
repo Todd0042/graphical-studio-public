@@ -40,19 +40,19 @@ TOOLTIPS = {
     "style_real_photo": "Prepend realistic DSLR lifestyle photography tags for natural skin texture and lighting.",
     "style": "Overall visual aesthetic (realistic photo, anime, cinematic film, noir, 2.5D semi-realistic).",
     "lighting": "Time of day and light mood (soft ring light, golden hour sun, neon rain, cozy bedside lamp).",
-    "framing": "How close the camera is to the subject (close-up face, waist-up vlogger shot, wide room, over-the-shoulder).",
-    "gender": "Subject count and gender presentation (solo woman, solo man, couple, group).",
+    "framing": "How close the camera is to the subject (close-up portrait, waist-up shot, wide room, over-the-shoulder).",
+    "gender": "Subject count and presentation (solo woman, solo man, couple, group, empty environment).",
     "symmetry": "Facial attractiveness & symmetry cues — balanced proportions, clear cheekbones, even features, vivid eye catchlights.",
     "age": "Adult age look and overall presence (early 20s college, mid 20s modern, 30s confident, sharp executive).",
-    "build": "Body type & posture (athletic, slender, curvy/hourglass, broad-shouldered, relaxed natural posture).",
+    "build": "Body type & posture (petite lean, slender athletic, toned fitness, broad-shouldered, average build).",
     "hair_color": "Hair color and dye style only (chestnut brunette, golden honey blonde, balayage, jet black, copper auburn, pastel pink, silver-white).",
     "hair_style": "Haircut and styling only, independent of color (soft waves, curtain bangs, messy bun, sleek ponytail, wolf cut, bob, braids, fade undercut).",
     "eyes": "Eye color and eye shape only (hazel, emerald green, ocean blue, espresso brown, amber, heterochromia) without forcing makeup or lighting.",
     "skin": "Skin tone and natural surface texture only (fair, freckles, olive, golden-bronze, caramel, deep warm, dewy) without forcing art style or makeup.",
     "makeup_acc": "Optional makeup, eyewear, jewelry, headwear, headphones, or tattoos — kept separate from eyes, skin, and attire.",
-    "attire": "Clothing and garments only (crop tops, hoodies, jeans, dresses, suits, armor) without forcing location.",
-    "pose": "Pure body posture and limb arrangement only (standing, seated, leaning, cross-legged, reclining, walking) without forcing furniture or props.",
-    "surface_prop": "Optional furniture, surface, or held prop (bed, chair, couch, counter, mirror, phone, coffee cup, desk mic, weapon) kept separate from pose and location.",
+    "attire": "Clothing and garments only (tees, hoodies, cardigans, jeans, dresses, suits, armor) without forcing location.",
+    "pose": "Pure body posture and limb arrangement only (standing, seated, leaning, cross-legged, walking) without forcing furniture or props.",
+    "surface_prop": "Optional furniture, surface, or held prop (chair, couch, counter, mirror, phone, coffee cup, desk mic, lantern) kept separate from pose and location.",
     "scene": "Physical location and environment only (bedroom, studio, living room, gym, penthouse, beach, tavern, starship) without forcing time-of-day or lighting.",
     "composition": "Where the subject sits in the frame. Image models follow this loosely by prompt; anything but Centered gets a wide 16:9 canvas.",
     "color_treatment": "Saturation and palette for the whole image: full color, muted, greyscale, sepia, duotone... Spot Color keeps one feature in color (pick it in Color Kept On).",
@@ -68,7 +68,6 @@ TOOLTIPS = {
     "builder_template_save": "Save the current dropdowns and Extra Custom Details as a named template.",
     "builder_template_delete": "Delete the selected template.",
     "builder_ascertain": "Read your current Photos prompt (or preview box) and auto-set every dropdown to its closest match.",
-    "rating": "Set the content tone for the scene.",
     "ref_image": "Optional reference photo used to guide a person or room layout.",
     "browse_ref": "Pick a reference photo from disk.",
     "clear_ref": "Clear the Reference Image and generate from text prompt only.",
@@ -76,18 +75,17 @@ TOOLTIPS = {
     "ref_style": "Target output style prefix to prepend to your prompt.",
     "ref_weight": "How strongly the Reference Image influences the output (0.65-0.80).",
     "apply_ref_style": "Insert the selected Convert-To-Style keywords into the Positive Prompt box.",
-    "anti_zoom_neg": "Add anti-zoom tags (close-up, headshot, portrait, cropped) to Negative Prompt.",
     "char_profile": "Choose 'Vary Person Each Run' to automatically inject distinct facial structure cues every run (breaks same-face syndrome), 'None' for prompt-only, or pick a saved Character Profile.",
     "save_profile": "Save the person in the currently selected generated photo as a reusable Character Profile.",
     "delete_profile": "Delete the currently selected saved Character Profile.",
 }
 
-if addons.REGISTRY.video_tooltips:
-    TOOLTIPS.update(addons.REGISTRY.video_tooltips)
-if addons.REGISTRY.tooltips_override:
-    TOOLTIPS.update(addons.REGISTRY.tooltips_override)
-if addons.REGISTRY.extend_tooltips:
-    addons.REGISTRY.extend_tooltips(TOOLTIPS)
+_tt_override = addons.REGISTRY.catalog.get("tooltips_override")
+if _tt_override:
+    TOOLTIPS.update(_tt_override)
+_tt_extend = addons.REGISTRY.catalog.get("extend_tooltips")
+if _tt_extend:
+    _tt_extend(TOOLTIPS)
 
 
 class ToolTip:
@@ -118,7 +116,7 @@ class ToolTip:
 
     def _show(self):
         import tkinter as tk
-        from wan_dpi import get_font, s
+        from studio_dpi import get_font, s
 
         if self._win or not self.text or not self.widget.winfo_exists():
             return
@@ -150,7 +148,7 @@ def attach_tooltip(widget, text_or_key: str) -> ToolTip:
 
 
 def build_wh_row(parent, v_width, v_height, on_change, row: int = 2):
-    """Build Width entry + Swap (⇄) button + Height entry on a 4-column LabelFrame."""
+    """Build Width entry + Swap button + Height entry on a 4-column LabelFrame."""
     from tkinter import ttk
 
     lw = ttk.Label(parent, text="Width:"); lw.grid(row=row, column=0, sticky="w", padx=4, pady=2)
@@ -214,4 +212,3 @@ def apply_dark_style(root):
         style.configure(k, **cfg)
     style.map("TCombobox", fieldbackground=[("readonly", "#121a32")], foreground=[("readonly", "#eef2fc")])
     style.map("TNotebook.Tab", background=[("selected", "#1d2d56")], foreground=[("selected", "#44e0ff")])
-

@@ -8,12 +8,12 @@ import shlex
 import shutil
 
 import addons
-import wan_library
-from wan_builder_dialog import build_outputs_panel, build_quick_bar
-from wan_compat import PHOTO_MODEL_SETTINGS, evaluate_photo_compat
-from wan_dpi import fit_window_geometry, get_font, register_scale_listener, s
-from wan_rectifier import rectify_freeform_prompt
-from wan_profiles import (
+import studio_library
+from studio_builder_dialog import build_outputs_panel, build_quick_bar
+from studio_compat import PHOTO_MODEL_SETTINGS, evaluate_photo_compat
+from studio_dpi import fit_window_geometry, get_font, register_scale_listener, s
+from studio_rectifier import rectify_freeform_prompt
+from studio_profiles import (
     PROFILE_MODE_NONE,
     PROFILE_MODE_VARY,
     delete_character_profile,
@@ -27,7 +27,7 @@ from wan_profiles import (
     resolve_profile_ref_image,
     save_character_profile,
 )
-from wan_studio_helpers import (
+from studio_helpers import (
     AMERICAN_REALISTIC_STYLE,
     ANIME_BG_STYLE,
     ANIME_GREENSCREEN_CHAR_STYLE,
@@ -44,10 +44,10 @@ from wan_studio_helpers import (
     slugify_photo_prompt,
     start_streaming_process,
 )
-from wan_tooltips import attach_tooltip, build_wh_row, pick_file_native
+from studio_tooltips import attach_tooltip, build_wh_row, pick_file_native
 
 
-def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on_import_builder=None):
+def build_photos_tab(parent, root, on_open_builder=None, on_import_builder=None, extra_ctrls=None):
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
     from PIL import Image, ImageTk
@@ -55,9 +55,9 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
     os.makedirs(PHOTOS_DIR, exist_ok=True)
     photo_models = get_photo_model_options()
     model_map = {label: key for key, label in photo_models}
-    default_m = addons.REGISTRY.default_photo_model or "flux2_klein"
+    default_m = addons.REGISTRY.models.get("default_photo_model") or "flux2_klein"
     default_st = PHOTO_MODEL_SETTINGS.get(default_m, {"steps": 4, "cfg": 1.0, "sampler": "euler", "scheduler": "simple"})
-    supports_ref = addons.REGISTRY.photo_supports_ipadapter
+    supports_ref = bool(addons.REGISTRY.models.get("supports_ref"))
     ref_mode_map = {label: key for key, label in REF_TARGET_OPTIONS}
     ref_style_map = {label: text for label, text in REF_STYLE_OPTIONS}
     v_model = tk.StringVar(value=photo_models[0][1])
@@ -74,7 +74,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
     v_profile = tk.StringVar(value=PROFILE_MODE_VARY)
     v_outname, v_cmd = tk.StringVar(value=""), tk.StringVar(value="")
     v_compat = tk.StringVar(value="")
-    v_status = tk.StringVar(value=addons.REGISTRY.photo_ready_status or "Ready (FLUX / Qwen-Image)")
+    v_status = tk.StringVar(value=addons.REGISTRY.desktop.get("photo_ready_status") or "Ready (FLUX / Qwen-Image)")
     compat_state = {"reduced": {}, "restricted": [], "builder_vals": None}
     proc_holder = {"proc": None, "last_out": None, "pending_meta": None}
     profile_state = {"auto_ref": ""}
@@ -118,7 +118,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         """Fill the prompt; from the Prompt Builder also the auto-picked model and settings.
         The builder state is saved to the library with each photo (Import into Prompt Builder)."""
         if builder is not None or builder_vals:
-            compat_state["builder"] = builder or wan_library.builder_state(builder_vals, vision, "photo", text)
+            compat_state["builder"] = builder or studio_library.builder_state(builder_vals, vision, "photo", text)
         elif replace:
             compat_state["builder"] = None
         if replace:
@@ -136,7 +136,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         v_status.set("Photo prompt & settings updated from Builder.")
 
     def apply_builder_settings(st: dict):
-        """Everything the builder picked for this prompt (wan_compat.recommended_photo_settings)."""
+        """Everything the builder picked for this prompt (studio_compat.recommended_photo_settings)."""
         label = next((lbl for key, lbl in photo_models if key == st.get("model")), None)
         if label:
             v_model.set(label)
@@ -240,7 +240,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
             return messagebox.showinfo("No Selection", "Select a generated image first.")
         open_path_default(p)
 
-    _sc = addons.REGISTRY.private_desktop_shortcuts
+    _sc = addons.REGISTRY.desktop.get("shortcuts", {})
     _export_bg_dir = _sc.get("backgrounds_dir", "")
 
     def select_in_fm():
@@ -258,13 +258,6 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         os.makedirs(_export_bg_dir, exist_ok=True)
         shutil.copy2(p, os.path.join(_export_bg_dir, os.path.basename(p)))
         v_status.set(f"Copied {os.path.basename(p)} to {_sc.get('photo_dest_desc', _export_bg_dir)}")
-
-    def send_selected_to_i2v():
-        p = selected_path()
-        if not p or not os.path.isfile(p):
-            return messagebox.showinfo("No Selection", "Select a generated image first.")
-        if on_send_to_i2v:
-            on_send_to_i2v(p)
 
     def send_selected_to_reference():
         p = selected_path()
@@ -301,7 +294,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         if not p or not os.path.isfile(p):
             messagebox.showinfo("No Selection", "Select a generated photo first.")
             return None
-        asset = wan_library.get(p)
+        asset = studio_library.get(p)
         if not asset or not (asset.get("effective_prompt") or asset.get("builder")):
             messagebox.showinfo("Nothing Saved", "Nothing is saved about how this photo was made, so there's nothing to import.")
             return None
@@ -319,13 +312,6 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         else:
             v_status.set(f"Imported {os.path.basename(asset['path'])}: exact prompt and settings (same seed). "
                          "It wasn't made with the Prompt Builder, so there are no dropdowns to restore.")
-
-    _pair_provider = addons.pair_provider()
-    make_pair_selected = _pair_provider.make_desktop_pair_handler(
-        selected_asset=selected_asset, apply_recipe=apply_recipe, txt_neg=txt_neg,
-        v_outname=v_outname, compat_state=compat_state, refresh_cmd=refresh_cmd,
-        v_status=v_status, root=root,
-    ) if _pair_provider else None
 
     def refresh_profile_dropdown(select_value: str | None = None):
         vals = get_profile_dropdown_values()
@@ -380,7 +366,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         p = selected_path()
         if not p or not os.path.isfile(p):
             return messagebox.showinfo("No Selection", "Select a generated photo first to save that person as a profile.")
-        from wan_tooltips import CURRENT_PALETTE
+        from studio_tooltips import CURRENT_PALETTE
 
         meta = get_photo_meta(p)
         src_prompt = meta.get("base_prompt") or txt_prompt.get("1.0", "end").strip()
@@ -486,9 +472,12 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         v_cmd.set(shlex.join(cmd))
         proc_holder["last_out"] = None
         builder = compat_state.get("builder") if base_prompt else None
-        parent = compat_state.pop("pair_parent", "")
+        parent_ref = compat_state.pop("derived_parent", "")
+        src_name = "desktop-builder" if builder else "desktop"
+        if parent_ref:
+            src_name = compat_state.pop("derived_source", "desktop-derived")
         proc_holder["pending_library"] = {
-            "source": "desktop-pair" if parent else "desktop-builder" if builder else "desktop", "parent": parent,
+            "source": src_name, "parent": parent_ref,
             "prompt": base_prompt, "variation": variation,
             "effective_prompt": cfg["prompt"], "settings": dict(cfg), "builder": builder,
             "reference": cfg.get("ref_image") if cfg.get("ref_mode") in ("person", "background") else "",
@@ -511,6 +500,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
         append_log(f"$ {shlex.join(cmd)}\n\n")
         btn_gen.configure(state="disabled"); btn_cancel.configure(state="normal")
         prog["value"] = 0
+
         def start_render():
             v_status.set(f"Generating Photo ({cfg['model']})...")
             proc_holder["proc"] = start_streaming_process(cmd, log_q)
@@ -523,7 +513,7 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
 
     def cancel_generate():
         if photo_turn.cancel():
-            return  # was still waiting for a GPU turn
+            return
         proc = proc_holder.get("proc")
         if proc is not None and proc.poll() is None:
             proc.terminate(); append_log("\n[CANCELLED BY USER]\n"); v_status.set("Photo generation cancelled.")
@@ -542,8 +532,8 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
                             record_photo_meta(saved_p, proc_holder["pending_meta"])
                         if proc_holder.get("pending_library"):
                             try:
-                                wan_library.record(saved_p, **proc_holder["pending_library"])
-                            except Exception as exc:  # never break the render over the library
+                                studio_library.record(saved_p, **proc_holder["pending_library"])
+                            except Exception as exc:
                                 append_log(f"[Library] could not record {os.path.basename(saved_p)}: {exc}\n")
                     if m:
                         cur, tot = int(m.group(1)), max(1, int(m.group(2)))
@@ -595,17 +585,9 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
                 txt_prompt.delete("1.0", "end")
                 txt_prompt.insert("1.0", f"{prefix}, {cur}" if cur else prefix)
             if "JRPG" in v_ref_style.get():
-                pref = addons.REGISTRY.anime_photo_model or default_m
+                pref = addons.REGISTRY.models.get("anime_photo_model") or default_m
                 v_model.set(next((m[1] for m in photo_models if m[0] == pref), photo_models[0][1]))
         refresh_cmd()
-
-    def add_anti_zoom_neg():
-        base = "close-up, headshot, portrait, cropped"
-        extra = f"{base}, {addons.REGISTRY.anti_zoom_neg_extra}" if addons.REGISTRY.anti_zoom_neg_extra else base
-        cur = txt_neg.get("1.0", "end").strip()
-        if "headshot" not in cur.lower():
-            txt_neg.delete("1.0", "end"); txt_neg.insert("1.0", f"{cur}, {extra}" if cur else extra)
-            refresh_cmd()
 
     l_mod = ttk.Label(lf_flags, text="Model (--model):"); l_mod.grid(row=0, column=0, sticky="w", padx=4)
     cb_model = ttk.Combobox(lf_flags, textvariable=v_model, values=[m[1] for m in photo_models], state="readonly")
@@ -692,8 +674,12 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
 
     hdr_n = ttk.Frame(lf_prompt); hdr_n.grid(row=3, column=0, sticky="ew")
     l_neg = ttk.Label(hdr_n, text="Negative Prompt (--negative):"); l_neg.pack(side="left"); attach_tooltip(l_neg, "negative")
-    az_lbl = "+ Anti-Zoom / No-Underwear Neg" if addons.REGISTRY.anti_zoom_neg_extra else "+ Anti-Zoom Neg"
-    b_az = ttk.Button(hdr_n, text=az_lbl, command=add_anti_zoom_neg); b_az.pack(side="right"); attach_tooltip(b_az, "anti_zoom_neg")
+    neg_helper = addons.REGISTRY.desktop.get("photo_neg_helper")
+    if neg_helper:
+        btn_cfg = neg_helper(txt_neg, refresh_cmd)
+        b_helper = ttk.Button(hdr_n, text=btn_cfg["label"], command=btn_cfg["command"])
+        b_helper.pack(side="right"); attach_tooltip(b_helper, btn_cfg["tooltip"])
+
     txt_neg = tk.Text(lf_prompt, height=2, wrap="word", bg="#0a0f1f", fg="#cdd6ef", insertbackground="#44e0ff", relief="flat", padx=6, pady=4, font=get_font("ui"))
     txt_neg.grid(row=4, column=0, sticky="ew", pady=(2, 6)); txt_neg.insert("1.0", PHOTO_DEFAULT_NEGATIVE); txt_neg.bind("<KeyRelease>", refresh_cmd)
     attach_tooltip(txt_neg, "negative")
@@ -711,29 +697,50 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
     txt_log._is_log = True
     txt_log.grid(row=0, column=0, sticky="nsew")
 
+    ext_ctx = {
+        "selected_path": selected_path, "selected_asset": selected_asset, "apply_recipe": apply_recipe,
+        "txt_neg": txt_neg, "v_outname": v_outname, "compat_state": compat_state, "refresh_cmd": refresh_cmd,
+        "v_status": v_status, "root": root, "extra_ctrls": extra_ctrls or [],
+    }
+    extra_action_builder = addons.REGISTRY.desktop.get("photo_output_actions")
+    ext_actions = extra_action_builder(ext_ctx) if extra_action_builder else {"menu": [], "buttons": [], "send_target": None}
+    send_target_spec = ext_actions.get("send_target")
+
     _photo_menu_items = [
         ("Open Image", open_selected_photo),
         ("Save Person as Character Profile...", open_save_profile_dialog),
         *([("Use Selected as Reference Photo", send_selected_to_reference)] if supports_ref else []),
         ("Import into Prompt Builder", import_selected),
-        *([(_pair_provider.desktop_menu_label, make_pair_selected)] if _pair_provider and make_pair_selected else []),
-        *([("Send Selected to Video (I2V)", send_selected_to_i2v)] if on_send_to_i2v is not None else []),
+        *ext_actions.get("menu", []),
         (_sc.get("select_menu", "Reveal in File Manager"), select_in_fm),
         (_sc.get("open_photos_menu", "Open Photos Folder"), open_folder_fm),
         *([(_sc.get("photo_menu_label", "Copy to Export Folder"), copy_to_export_bg)] if _export_bg_dir else []),
     ]
+    next_row = 2
     _photo_buttons = [
         ("🖼 Open Image", open_selected_photo, 0, 0, 1, "TButton", "open_output"),
         (_sc.get("select_btn", "📂 Reveal File"), select_in_fm, 0, 1, 1, "TButton", _sc.get("tt_select", "select_file")),
         (_sc.get("open_photos_btn", "📁 Open Photos Folder"), open_folder_fm, 1, 0, 1 if _export_bg_dir else 2, "TButton", _sc.get("tt_folder", "open_folder")),
         *([(_sc.get("photo_copy_label", "🎬 Copy to Export"), copy_to_export_bg, 1, 1, 1, "TButton", _sc.get("tt_copy", "copy_export"))] if _export_bg_dir else []),
-        *([("🔁 Use as Reference Photo", send_selected_to_reference, 2, 0, 1 if on_send_to_i2v is not None else 2, "Accent.TButton", "send_to_ref")] if supports_ref else []),
-        *([("🎬 Send to Video (I2V)", send_selected_to_i2v, 2, 1 if supports_ref else 0, 1 if supports_ref else 2, "Accent.TButton", "send_i2v")] if on_send_to_i2v is not None else []),
-        ("📥 Import into Prompt Builder", import_selected, 3, 0, 1 if (_pair_provider and make_pair_selected) else 2, "Accent.TButton", "Put back everything this photo was made with: dropdowns, vision, Final prompt, model, size and seed."),
-        *([(_pair_provider.desktop_button_label, make_pair_selected, 3, 1, 1, "TButton", _pair_provider.desktop_button_tooltip)] if _pair_provider and make_pair_selected else []),
-        ("👤 Save Person as Profile...", open_save_profile_dialog, 4, 0, 1, "Accent.TButton", "save_profile"),
-        ("🔄 Refresh List", refresh_photos, 4, 1, 1, "TButton", "refresh_list"),
     ]
+    if supports_ref or send_target_spec:
+        if supports_ref:
+            _photo_buttons.append(("🔁 Use as Reference Photo", send_selected_to_reference, next_row, 0, 1 if send_target_spec else 2, "Accent.TButton", "send_to_ref"))
+        if send_target_spec:
+            _photo_buttons.append((send_target_spec["label"], send_target_spec["command"], next_row, 1 if supports_ref else 0, 1 if supports_ref else 2, "Accent.TButton", send_target_spec["tooltip"]))
+        next_row += 1
+
+    extra_btns = ext_actions.get("buttons", [])
+    _photo_buttons.append(("📥 Import into Prompt Builder", import_selected, next_row, 0, 1 if extra_btns else 2, "Accent.TButton",
+                           "Put back everything this photo was made with: dropdowns, vision, Final prompt, model, size and seed."))
+    for b_spec in extra_btns:
+        _photo_buttons.append((b_spec["label"], b_spec["command"], next_row, 1, 1, "TButton", b_spec["tooltip"]))
+    next_row += 1
+    _photo_buttons.extend([
+        ("👤 Save Person as Profile...", open_save_profile_dialog, next_row, 0, 1, "Accent.TButton", "save_profile"),
+        ("🔄 Refresh List", refresh_photos, next_row, 1, 1, "TButton", "refresh_list"),
+    ])
+
     _, tree, lbl_preview = build_outputs_panel(
         pane, root, "Generated Photos & Backgrounds", "Select a photo to preview",
         on_select_photo, open_selected_photo,
@@ -749,4 +756,6 @@ def build_photos_tab(parent, root, on_send_to_i2v=None, on_open_builder=None, on
     register_scale_listener(_on_photo_rescale)
     refresh_cmd(); refresh_photos()
     root.after(80, poll_queue)
-    return {"refresh": refresh_photos, "open_selected": open_selected_photo, "select_file": select_in_fm, "open_folder": open_folder_fm, **({"copy_export": copy_to_export_bg} if _export_bg_dir else {}), "set_prompt": set_prompt, "get_prompt": lambda: txt_prompt.get("1.0", "end").strip(), "apply_recipe": apply_recipe}
+    return {"refresh": refresh_photos, "open_selected": open_selected_photo, "select_file": select_in_fm, "open_folder": open_folder_fm,
+            **({"copy_export": copy_to_export_bg} if _export_bg_dir else {}), "set_prompt": set_prompt,
+            "get_prompt": lambda: txt_prompt.get("1.0", "end").strip(), "apply_recipe": apply_recipe}

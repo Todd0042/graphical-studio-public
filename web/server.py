@@ -28,13 +28,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 import addons  # noqa: E402
-from wan_compat import analyze_builder_intent  # noqa: E402
-import wan_library  # noqa: E402
-from wan_models import prompt_llm_options  # noqa: E402
-from wan_presets import PRESETS  # noqa: E402
-from wan_prompt_catalog import MOTION_FIELDS, PERSON_FIELDS, SCENE_ATTIRE_FIELDS, THEME_FIELDS  # noqa: E402
-from wan_studio_helpers import OUTPUTS_DIR, PHOTOS_DIR, extract_thumbnail  # noqa: E402
-from wan_templates import delete_template, load_templates, save_template  # noqa: E402
+from studio_compat import analyze_builder_intent  # noqa: E402
+import studio_library  # noqa: E402
+from studio_models import prompt_llm_options  # noqa: E402
+from studio_presets import PRESETS  # noqa: E402
+from studio_prompt_catalog import ALL_GROUPS  # noqa: E402
+from studio_helpers import OUTPUTS_DIR, PHOTOS_DIR  # noqa: E402
+from studio_templates import delete_template, load_templates, save_template  # noqa: E402
 
 from web.auth import SESSION_COOKIE_NAME, create_session_token, safe_next_path, verify_session_token  # noqa: E402
 from web.sso import TicketError, TicketVerifier  # noqa: E402
@@ -42,7 +42,6 @@ from web.compose import register_compose_routes  # noqa: E402
 from web.jobs import JobQueue  # noqa: E402
 from web.specs import (  # noqa: E402
     SpecError, builder_preview, photo_options, prepare_fill, prepare_photo, prepare_reconcile,
-    prepare_video, video_options,
 )
 
 STATIC_DIR = WEB_DIR / "static"
@@ -50,12 +49,6 @@ WEB_THUMB_DIR = ROOT_DIR / ".cache" / "tmp" / "web_thumbs"
 PUBLIC_PATHS = {"/login", "/logout", "/auth/sso", "/signed-out", "/api/health", "/robots.txt", "/favicon.ico", "/static/app.css"}
 ICON_PATH = ROOT_DIR / "graphical_studio_icon.png"
 UPLOAD_MAX_AGE_SEC = 7 * 86400
-BUILDER_GROUPS = (
-    ("Theme", THEME_FIELDS),
-    ("Person", PERSON_FIELDS),
-    ("Scene & Attire", SCENE_ATTIRE_FIELDS),
-    *((("Motion (video)", MOTION_FIELDS),) if addons.REGISTRY.video_enabled and MOTION_FIELDS else ()),
-)
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -144,7 +137,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def _secure(resp: Response) -> Response:
         for k, v in SECURITY_HEADERS.items():
             resp.headers.setdefault(k, v)
-        # no-transform: keeps Cloudflare from injecting its analytics beacon into these private pages
         resp.headers.setdefault("Cache-Control", "no-store, no-transform")
         return resp
 
@@ -164,23 +156,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, Any]:
         return {"ok": True, "service": "graphical-studio-web"}
 
-    # Asset URLs carry a content hash: Cloudflare edge-caches .css/.js, so a deploy must change the URL.
-    asset_version = hashlib.sha1(b"".join(
-        p.read_bytes() for p in sorted(STATIC_DIR.iterdir()) if p.suffix in (".css", ".js")
-    )).hexdigest()[:10]
-    login_note = addons.REGISTRY.private_web_defaults.get(
+    asset_inputs = [p.read_bytes() for p in sorted(STATIC_DIR.iterdir()) if p.suffix in (".css", ".js")]
+    for ext_p in addons.REGISTRY.web.get("extra_static_paths", ()):
+        fp = Path(ext_p)
+        if fp.is_file():
+            asset_inputs.append(fp.read_bytes())
+    asset_version = hashlib.sha1(b"".join(asset_inputs)).hexdigest()[:10]
+
+    login_note = addons.REGISTRY.web.get("defaults", {}).get(
         "login_note", "Sign-in uses your configured SSO provider (owner only)."
+    )
+    extra_scripts_html = "\n  ".join(
+        f'<script src="{src}?v={asset_version}"></script>'
+        for src in addons.REGISTRY.web.get("extra_scripts", ())
     )
     pages = {
         name: (STATIC_DIR / name).read_text(encoding="utf-8")
         .replace("__V__", asset_version)
         .replace("__LOGIN_NOTE__", login_note)
+        .replace("<!-- __EXTRA_SCRIPTS__ -->", extra_scripts_html)
         for name in ("index.html", "login.html")
     }
 
     @app.get("/login")
     def login(next: str = "/") -> Response:
-        # Redirect to the configured SSO hand-off; it returns a one-time ticket to /auth/sso.
         url = f"{cfg.sso_url}?{urlencode({'site': cfg.sso_site, 'next': safe_next_path(next)})}"
         return RedirectResponse(url, status_code=303)
 
@@ -220,7 +219,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not path:
             return Response(status_code=404)
         resp = FileResponse(path)
-        resp.headers["Cache-Control"] = "private, max-age=86400, no-transform"  # URL is content-versioned
+        resp.headers["Cache-Control"] = "private, max-age=86400, no-transform"
         return resp
 
     # ---- status / options --------------------------------------------------------------------
@@ -229,40 +228,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def status(request: Request) -> dict[str, Any]:
         return {
             "queue": request.app.state.jobs.stats(),
-            **(addons.gpu_web_status() or {}),
+            **(addons.web_status() or {}),
         }
 
     @app.get("/api/options")
     def options() -> dict[str, Any]:
+        group_labels = addons.REGISTRY.web.get("builder_group_labels", {})
         groups = [
-            {"group": g, "fields": [{"key": k, "label": label, "options": opts} for k, label, _, opts in fields]}
-            for g, fields in BUILDER_GROUPS
+            {"group": group_labels.get(g, g.split(".", 1)[-1].strip().split(" ")[0] if g.startswith("1.") else _group_title(g)),
+             "fields": [{"key": k, "label": label, "options": opts} for k, label, _, opts in fields]}
+            for g, fields in ALL_GROUPS
         ]
         ui = addons.llm_ui_strings()
-        video_on = bool(addons.REGISTRY.video_enabled)
-        if video_on and addons.REGISTRY.video_ui_strings:
-            ui.update(addons.REGISTRY.video_ui_strings)
-        if addons.REGISTRY.gpu_offline_label:
-            ui["gpu_offline_label"] = addons.REGISTRY.gpu_offline_label
-        if addons.REGISTRY.gpu_active_key:
-            ui["gpu_active_key"] = addons.REGISTRY.gpu_active_key
+        if addons.REGISTRY.web.get("ui_strings"):
+            ui.update(addons.REGISTRY.web["ui_strings"])
         llm_opts = prompt_llm_options()
         out: dict[str, Any] = {
             "photo": photo_options(),
-            **({"video": video_options()} if video_on else {}),
-            "features": {"video": video_on},
             "builder": groups,
             "llms": llm_opts, "ui": ui,
-            "app_labels": {"graphical_studio": "Graphical Studio", **addons.REGISTRY.gpu_app_labels},
+            "app_labels": {"graphical_studio": "Graphical Studio", **addons.REGISTRY.web.get("app_labels", {})},
             "presets": [{"name": p["name"], "about": p["about"], "values": p["values"]} for p in PRESETS],
         }
         if ui["api_list_key"] != "llms":
             out[ui["api_list_key"]] = llm_opts
+        overlay = addons.REGISTRY.web.get("options_overlay")
+        if overlay:
+            overlay(out)
         return out
 
     @app.post("/api/builder/preview")
     async def builder_preview_route(request: Request) -> Response:
-        """Live preview of the prompt the dropdowns + vision make (Python only, no GPU)."""
+        """Live preview of the prompt the dropdowns + vision make right now (Python only)."""
         body = await request.json()
         if not isinstance(body, dict):
             return JSONResponse({"detail": "Expected a JSON object"}, status_code=400)
@@ -337,11 +334,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/jobs/{kind}")
     async def jobs_submit(request: Request, kind: str) -> Response:
-        preparers = {
+        preparers: dict[str, Any] = {
             "photo": prepare_photo,
-            **({"video": prepare_video} if addons.REGISTRY.video_enabled else {}),
             "reconcile": lambda b, _r: prepare_reconcile(b),
             "fill": lambda b, _r: prepare_fill(b),
+            **(addons.REGISTRY.web.get("job_preparers") or {}),
         }
         if kind not in preparers:
             return JSONResponse({"detail": "Unknown job kind"}, status_code=404)
@@ -364,28 +361,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ---- gallery -----------------------------------------------------------------------------
 
     def _asset(path: Path) -> dict[str, Any] | None:
-        return wan_library.get(str(path))
+        return studio_library.get(str(path))
 
     def _media_rows(kind: str) -> list[dict[str, Any]]:
+        item_hook = addons.REGISTRY.web.get("gallery_item_hook")
         out = []
-        for a in wan_library.list_assets(kind):
+        for a in studio_library.list_assets(kind):
             if not a["path"].startswith(OUTPUTS_DIR + os.sep):
-                continue  # library rows only ever point inside outputs/, but never serve anything else
+                continue
             st = os.stat(a["path"])
             item = {"rel": os.path.relpath(a["path"], OUTPUTS_DIR), "name": os.path.basename(a["path"]),
                     "size": f"{st.st_size / 1e6:.1f} MB", "mtime": time.strftime("%Y-%m-%d %H:%M", time.localtime(a["created"])),
                     "kind": kind, "source": a["source"], "has_builder": bool(a["builder"]),
                     "has_recipe": bool(a["effective_prompt"] or a["builder"])}
-            s = a["settings"]
-            pp = addons.pair_provider()
-            if pp and kind == "photo" and a["effective_prompt"] and s.get("model") and s.get("seed") is not None and s.get("width"):
-                item.update(pp.gallery_item_extras(a["effective_prompt"]))
+            if item_hook:
+                item_hook(item, a)
             out.append(item)
         return out
 
     @app.get("/api/media")
     def media_list(kind: str = "photo") -> Response:
-        allowed_kinds = ("photo", "video") if addons.REGISTRY.video_enabled else ("photo",)
+        allowed_kinds = tuple(addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR))
         if kind not in allowed_kinds:
             return JSONResponse({"detail": f"kind must be {' or '.join(allowed_kinds)}"}, status_code=400)
         return JSONResponse({"items": _media_rows(kind)})
@@ -408,7 +404,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/media/use-as-reference")
     async def media_use_as_reference(request: Request) -> Response:
-        """Attach a gallery photo as the photo-reference or video start image (no re-upload)."""
+        """Attach a gallery photo as the reference image (no re-upload)."""
         body = await request.json()
         path = _resolve_under(PHOTOS_DIR, str(body.get("rel") or "").removeprefix("photos/"))
         if not path or path.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
@@ -422,24 +418,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ref_mode = "person" if analyze_builder_intent({}, prompt)["has_people"] or not prompt else "background"
         return JSONResponse({"upload": token, "width": width, "height": height, "prompt": prompt,
                              "ref_mode": ref_mode, "name": path.name})
-
-    if (pp := addons.pair_provider()):
-        @app.post(pp.route_path)
-        async def media_twin(request: Request) -> Response:
-            """Queue the matching twin version of a finished web photo."""
-            body = await request.json()
-            rel = str(body.get("rel") or "")
-            path = _resolve_under(OUTPUTS_DIR, rel)
-            if not path:
-                return JSONResponse({"detail": "Not found"}, status_code=404)
-            try:
-                plan = pp.prepare(_asset(path), rel)
-                job = request.app.state.jobs.submit(pp.kind, plan, cfg.max_queued_jobs)
-            except SpecError as exc:
-                return JSONResponse({"detail": str(exc)}, status_code=400)
-            except OverflowError as exc:
-                return JSONResponse({"detail": str(exc)}, status_code=429)
-            return JSONResponse(job, status_code=201)
 
     @app.get("/media/file/{rel:path}")
     def media_file(rel: str, download: bool = False) -> Response:
@@ -465,14 +443,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.delete("/api/media/{rel:path}")
     def media_delete(rel: str) -> Response:
         path = _resolve_under(OUTPUTS_DIR, rel)
-        exts = (".jpg", ".jpeg", ".png", ".webp", ".mp4") if addons.REGISTRY.video_enabled else (".jpg", ".jpeg", ".png", ".webp")
+        exts = tuple(e for _, exts in addons.media_kind_specs(OUTPUTS_DIR, PHOTOS_DIR).values() for e in exts)
         if not path or path.suffix.lower() not in exts:
             return JSONResponse({"detail": "Not found"}, status_code=404)
         path.unlink()
-        wan_library.forget(str(path))
+        studio_library.forget(str(path))
         return JSONResponse({"deleted": rel})
 
+    register_extra_routes = addons.REGISTRY.web.get("register_routes")
+    if register_extra_routes:
+        register_extra_routes(app, cfg, resolve_under=_resolve_under, resolve_upload=resolve_upload, asset_fn=_asset)
+
     return app
+
+
+def _group_title(heading: str) -> str:
+    return {
+        "1. Theme, Style & Camera": "Theme",
+        "2. Person Characteristics": "Person",
+        "3. Attire, Pose, Props & Location": "Scene & Attire",
+    }.get(heading, heading)
 
 
 def _store_image_with_size(raw: bytes, uploads_dir: Path) -> tuple[str, int, int]:
@@ -502,8 +492,11 @@ def _store_image(raw: bytes, uploads_dir: Path) -> str:
 
 
 def _thumbnail_for(path: Path) -> str | None:
-    if path.suffix.lower() == ".mp4":
-        return extract_thumbnail(str(path))
+    thumb_hook = addons.REGISTRY.web.get("thumbnail_handler")
+    if thumb_hook:
+        res = thumb_hook(path)
+        if res is not None:
+            return res
     from PIL import Image
 
     st = path.stat()

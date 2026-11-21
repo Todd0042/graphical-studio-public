@@ -11,7 +11,7 @@ Flow (shared by any front end):
      style that model wants. Each choice comes with a reason.
   4. The creator edits that too, then build_command(plan) gives the generate_asset.py argv.
 
-LLM calls go straight to Ollama (JSON mode). pick_llm() chooses the best installed model for the job.
+LLM calls go to allow-listed Ollama instruct models (JSON mode), or a registered extension provider.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import json
 import os
 import random
 import re
+import sys
 import urllib.request
 from collections import Counter
 from datetime import datetime
@@ -168,6 +169,7 @@ _FRAME_CANVAS = {  # frame type -> (render canvas ~1 MP, default final size)
     "hud": ((1792, 576), "1200x384"), "nameplate": ((1536, 512), "600x200"),
 }
 
+
 def detect_kind(brief: str) -> str:
     low = f" {(brief or '').lower()} "
     scores = {k: sum(low.count(w) for w in ws) for k, ws in _KIND_WORDS.items()}
@@ -283,63 +285,17 @@ def scan_repo(path: str, max_files: int = 5000) -> dict:
 
 
 # ── LLM choice and calls ──────────────────────────────────────────────────────
-# Two backends:
-#   llama.cpp router (this laptop): llama-server --models-preset ~/ai/models.ini on :8080, OpenAI API. Started on
-#     demand for each LLM step and stopped afterwards (only if this app started it), so the GPU is free to render.
-#   Ollama (the desktop PC): used when it's running and has the model.
-LLAMA_URL = os.environ.get("GS_LLAMA_URL", "http://127.0.0.1:8080").rstrip("/")
-LLAMA_INI = os.path.expanduser(os.environ.get("GS_LLAMA_MODELS_INI", "~/ai/models.ini"))
-LLAMA_SERVER = os.path.expanduser(os.environ.get("GS_LLAMA_SERVER", "~/ai/llama.cpp/build/bin/llama-server"))
-
-# Ranked: strict JSON + design reasoning that runs well on 8 GB.
-LLM_RANKING = list(addons.REGISTRY.asset_llm_ranking or [
-    ("qwen3-8b", "Qwen3 8B (llama.cpp): best at strict JSON and design reasoning, fully in 8 GB VRAM, ~40 tok/s"),
+# Core supports only allow-listed Ollama instruct models from models.json (unless an extension
+# registers an alternative asset LLM provider).
+_CORE_RANKING = [
     ("qwen3:8b", "Qwen3 8B: best at strict JSON and design reasoning that fits in 8 GB"),
-    ("qwen3-14b", "Qwen3 14B (llama.cpp): stronger reasoning, ~14 tok/s"),
-    ("qwen3-30b-a3b", "Qwen3 30B-A3B (llama.cpp): strongest, hybrid CPU/GPU MoE, slower to load"),
     ("qwen2.5-coder:7b", "Qwen2.5 Coder 7B: reads code well, fits in 8 GB"),
-    ("qwen2.5-coder:14b", "Qwen2.5 Coder 14B: strong reader, slightly over 8 GB"),
-    ("llama3.1:8b", "Llama 3.1 8B: general"),
+    ("llama3.1:8b", "Llama 3.1 8B: general instruct"),
     ("gemma3:4b", "Gemma 3 4B: fast lightweight instruct"),
-    ("mistral:7b", "Mistral 7B: general"),
-])
-_CODE_FIRST = ["qwen3-14b", "qwen2.5-coder:7b", "qwen3:8b", "qwen3-8b", "qwen2.5-coder:14b"]
-
-
-def llama_presets() -> list[str]:
-    """Model names the llama.cpp router can load ([sections] of models.ini), if the router is installed here."""
-    if not (os.path.isfile(LLAMA_INI) and os.path.isfile(LLAMA_SERVER)):
-        return []
-    try:
-        with open(LLAMA_INI, encoding="utf-8") as f:
-            return [m.group(1).strip() for m in re.finditer(r"^\s*\[([^\]]+)\]", f.read(), re.M)]
-    except OSError:
-        return []
-
-
-def _ollama_models() -> list[str] | None:
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_URL}/api/tags", timeout=2.0) as resp:
-            return [str(m.get("name", "")) for m in json.loads(resp.read()).get("models", [])]
-    except Exception:
-        return None
-
-
-def installed_llms() -> list[str] | None:
-    """Every usable LLM: llama.cpp router presets first, then Ollama models. None when neither exists."""
-    presets, ollama = llama_presets(), _ollama_models()
-    if not presets and ollama is None:
-        return None
-    seen, out = set(), []
-    for name in presets + (ollama or []):
-        if _norm(name) not in seen:
-            seen.add(_norm(name))
-            out.append(name)
-    return out
-
-
-def llm_backend(model: str) -> str:
-    return "llama" if model in llama_presets() else "ollama"
+]
+_asset_provider = addons.REGISTRY.llm.get("asset_provider")
+LLM_RANKING = list(_asset_provider.ranking if _asset_provider else _CORE_RANKING)
+_CODE_FIRST = list(getattr(_asset_provider, "code_first", ["qwen2.5-coder:7b", "qwen3:8b"]))
 
 
 def _norm(name: str) -> str:
@@ -347,75 +303,62 @@ def _norm(name: str) -> str:
     return n[:-7] if n.endswith(":latest") else n
 
 
+def _allowed_core_llms() -> set[str]:
+    from studio_models import manifest
+
+    llms = manifest().get("llms", {})
+    entries = list(llms.get("instruct") or []) + list(llms.get("extras") or [])
+    return {_norm(str(e["name"])) for e in entries if e.get("name")} | {_norm(n) for n, _ in _CORE_RANKING}
+
+
+def _ollama_models() -> list[str] | None:
+    from studio_models import ollama_installed
+
+    have = ollama_installed()
+    if have is None:
+        return None
+    seen, out = set(), []
+    for name in have:
+        norm = _norm(name)
+        if norm not in seen:
+            seen.add(norm)
+            out.append(norm if name.endswith(":latest") else name)
+    return out
+
+
+def installed_llms() -> list[str] | None:
+    """Usable allow-listed Ollama models, or provider-supplied models if an extension is loaded."""
+    if _asset_provider and hasattr(_asset_provider, "installed_llms"):
+        return _asset_provider.installed_llms()
+    ollama = _ollama_models()
+    if ollama is None:
+        return None
+    allowed = _allowed_core_llms()
+    return [name for name in ollama if _norm(name) in allowed]
+
+
 def pick_llm(read_code: bool = False, requested: str = "") -> tuple[str | None, str]:
-    """(model, reason). requested = a specific installed model, or ''/'Auto' for the best installed one."""
+    """(model, reason). Strictly allow-listed in core; never falls back to unlisted Ollama models."""
+    if _asset_provider and hasattr(_asset_provider, "pick_llm"):
+        return _asset_provider.pick_llm(read_code=read_code, requested=requested)
     have = installed_llms()
     if have is None:
-        return None, "No LLM found (no llama.cpp router presets, Ollama not running), so the offline matcher was used."
+        return None, "Ollama isn't running, so the offline matcher was used."
     by_norm = {_norm(h): h for h in have}
+    note = ""
     if requested and not requested.lower().startswith("auto"):
         if _norm(requested) in by_norm:
             return by_norm[_norm(requested)], f"{requested}: your pick."
-        note = f"{requested} isn't installed; "
-    else:
-        note = ""
+        note = f"{requested} isn't an allow-listed installed model; "
     order = [n for n, _ in LLM_RANKING]
     if read_code:
         order = _CODE_FIRST + [n for n in order if n not in _CODE_FIRST]
     reasons = dict(LLM_RANKING)
     for name in order:
-        if name in by_norm:
-            why = reasons[name] + (" (reading a repo, so a stronger reader goes first)" if read_code and name in _CODE_FIRST else "")
-            return by_norm[name], note + why
-    if have:
-        return have[0], note + f"{have[0]}: the only kind of model installed (none of the ranked ones are)."
-    return None, note + "No LLM is installed, so the offline matcher was used."
-
-
-def _llama_up(timeout: float = 1.5) -> bool:
-    try:
-        with urllib.request.urlopen(f"{LLAMA_URL}/health", timeout=timeout) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
-
-
-class LlamaRouter:
-    """`with LlamaRouter():` starts the llama.cpp router if it isn't running and stops it on exit, but only
-    if it was started here (a router you started yourself is left alone)."""
-
-    def __init__(self, wait: float = 60.0):
-        self.wait, self.proc = wait, None
-
-    def __enter__(self):
-        if _llama_up():
-            return self
-        import subprocess
-        import time
-
-        port = LLAMA_URL.rsplit(":", 1)[-1].split("/")[0]
-        self.proc = subprocess.Popen(
-            [LLAMA_SERVER, "--models-preset", LLAMA_INI, "--models-max", "1", "--host", "127.0.0.1", "--port", port],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.time() + self.wait
-        while time.time() < deadline:
-            if self.proc.poll() is not None:
-                raise OSError(f"llama-server exited (code {self.proc.returncode}); is port {port} in use?")
-            if _llama_up():
-                return self
-            time.sleep(0.5)
-        self.__exit__(None, None, None)
-        raise OSError("llama-server didn't come up within a minute")
-
-    def __exit__(self, *_exc):
-        proc, self.proc = self.proc, None
-        if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=15)
-            except Exception:
-                proc.kill()
-        return False
+        if _norm(name) in by_norm:
+            why = reasons[name] + (" (reading a repo, so a coder model goes first)" if read_code and name in _CODE_FIRST else "")
+            return by_norm[_norm(name)], note + why
+    return None, note + "No allow-listed instruct LLM is installed. Run start_graphical_studio.sh --llm-sync."
 
 
 def _parse_json_reply(raw: str) -> dict | None:
@@ -426,20 +369,6 @@ def _parse_json_reply(raw: str) -> dict | None:
     except (ValueError, AttributeError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def _llama_chat(model: str, system: str, user: str, ctx: int, temperature: float, timeout: float) -> str:
-    """One chat call to the llama.cpp router (it loads `model` on demand). JSON-only output, Qwen3 thinking off."""
-    body = {"model": model, "temperature": temperature, "max_tokens": 1400, "stream": False,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "system", "content": system + (" /no_think" if model.startswith("qwen3") else "")},
-                         {"role": "user", "content": user}]}
-    if model.startswith("qwen3"):
-        body["chat_template_kwargs"] = {"enable_thinking": False}
-    req = urllib.request.Request(f"{LLAMA_URL}/v1/chat/completions", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read())["choices"][0]["message"].get("content", "")
 
 
 def _ollama_chat(model: str, system: str, user: str, ctx: int, temperature: float, timeout: float) -> str:
@@ -458,18 +387,22 @@ LAST_LLM_ERROR = {"text": ""}
 
 
 def llm_json(model: str, system: str, user: str, *, ctx: int = 8192, temperature: float = 0.6, timeout: float = 300) -> dict | None:
-    """One chat call in JSON mode on the model's backend (llama.cpp router started/stopped around it when
-    needed). None on any failure; the reason is kept in LAST_LLM_ERROR for the notes."""
+    """One chat call in JSON mode via Ollama (or registered provider). Surfaces refusals cleanly."""
+    from studio_rectifier import _is_llm_refusal
+
     LAST_LLM_ERROR["text"] = ""
     try:
-        if llm_backend(model) == "llama":
-            with LlamaRouter():
-                raw = _llama_chat(model, system, user, ctx, temperature, timeout)
+        if _asset_provider and hasattr(_asset_provider, "chat"):
+            raw = _asset_provider.chat(model, system, user, ctx, temperature, timeout)
         else:
             raw = _ollama_chat(model, system, user, ctx, temperature, timeout)
     except Exception as exc:
         LAST_LLM_ERROR["text"] = f"{type(exc).__name__}: {exc}"
         return None
+    if _is_llm_refusal(raw) and not addons.REGISTRY.llm.get("allow_refusal_bypass"):
+        msg = f"{model} refused the request."
+        LAST_LLM_ERROR["text"] = msg
+        return {"_refused": True, "_note": msg}
     data = _parse_json_reply(raw)
     if data is None:
         LAST_LLM_ERROR["text"] = "reply wasn't valid JSON"
@@ -482,10 +415,8 @@ _LEAD = re.compile(r"^\s*(?:please\s+)?(?:i\s+(?:need|want|would like)|can you|c
                    r"(?:icon|logo|background|wallpaper|backdrop|texture|tile|sprite|image|picture|asset)?s?\s*"
                    r"(?:for|of|that is|showing|with)?\s*(?:an?|the|my)?\s*", re.I)
 
-# "(for) my-repo that is a sunny day" -> "a sunny day": a short name (<= 4 words) followed by a connector.
 _FOR_THING = re.compile(r"^(?:for\s+)?(?:[\w.()/-]+\s+){0,3}?[\w.()/-]+\s+(?:that is|that's|which is|that shows|showing|depicting)\s+", re.I)
 
-# keyword -> motif phrase (icons / sprites)
 _MOTIFS = [
     (("ide", "editor", "code", "coding", "coder", "programming", "developer", "dev "), "a bold </> code bracket"),
     (("remote", "cloud", "server", "ssh", "hosted"), "a soft cloud"),
@@ -497,7 +428,7 @@ _MOTIFS = [
     (("security", "secure", "vault", "password", "lock"), "a shield with a keyhole"),
     (("database", "data", "storage", "sql"), "a stacked database cylinder"),
     (("photo", "image", "camera", "graphic", "studio", "art", "paint"), "a camera aperture"),
-    (("video", "film", "movie", "cutscene"), "a play triangle in a film frame"),
+    (("film", "movie", "cinema", "reel"), "a play triangle in a film frame"),
     (("note", "notes", "writing", "docs", "document"), "a folded page with a pen"),
     (("mail", "email", "inbox"), "an envelope"),
     (("finance", "money", "budget", "wallet"), "a coin stack"),
@@ -509,7 +440,6 @@ _MOTIFS = [
     (("calendar", "schedule", "time", "clock"), "a clock face"),
     (("gpu", "compute", "chip", "hardware"), "a glowing microchip"),
 ]
-# field -> [(keywords, value)] for the offline matcher
 _FIELD_HINTS: dict[str, list[tuple[tuple[str, ...], str]]] = {
     "platform": [(("linux", "gnome", "kde", "freedesktop", "ubuntu", "arch", "fedora"), "Linux desktop (freedesktop / Papirus-like)"),
                  (("macos", "mac ", "apple", "osx"), "macOS (Big Sur squircle, soft 3D)"),
@@ -594,7 +524,7 @@ def _offline_fields(kind: str, brief: str, repo: dict | None) -> tuple[dict[str,
         if scored and scored[0][0]:
             out[key] = scored[0][1]
     body = _LEAD.sub("", brief.strip()).strip(" .")
-    body = _FOR_THING.sub("", body, count=1)  # "(for) my-repo that is a sunny day..." -> "a sunny day..."
+    body = _FOR_THING.sub("", body, count=1)
     body = re.sub(r"\s+", " ", body)
     if kind in ("icon", "sprite"):
         motifs = [m for ws, m in _MOTIFS if _hits(low, ws)]
@@ -663,7 +593,7 @@ def _offline_concept(kind: str, f: dict[str, str]) -> str:
 
 
 _EXPAND_SYSTEM = (
-    "You are a senior visual designer and art director. A creator gives you a rough one-line brief for a graphic "
+    "You are a senior visual designer and art director for an all-ages creative studio. A creator gives you a rough one-line brief for a graphic "
     "asset. Expand it into a strong, specific design direction, then fill in every field.\n"
     "Rules: honor everything the brief states exactly (objects, places, colors, time of day, platform). Invent the "
     "rest so it is coherent, tasteful and fits the purpose. For icons think like an icon designer: one clear metaphor, "
@@ -677,9 +607,7 @@ _EXPAND_SYSTEM = (
 
 
 def expand_brief(brief: str, kind: str = "auto", repo_path: str = "", llm: str = "", use_llm: bool = True) -> dict:
-    """Step 1. Returns {"kind", "title", "concept", "fields", "notes", "llm", "repo"}.
-
-    llm: '' / 'Auto' = the best installed model; a name = that model. Falls back to the offline matcher."""
+    """Step 1. Returns {"kind", "title", "concept", "fields", "notes", "llm", "repo"}."""
     brief = (brief or "").strip()
     if not brief:
         raise ValueError("Write a short brief first.")
@@ -696,13 +624,17 @@ def expand_brief(brief: str, kind: str = "auto", repo_path: str = "", llm: str =
     title, used = "", ""
     model, why = pick_llm(read_code=bool(repo), requested=llm) if use_llm else (None, "LLM off: offline matcher.")
     if model:
-        # Field names and what they mean only: no option lists, so the LLM writes its own values.
         spec = "\n".join(f"- {k} ({label})" + (f": {tip}" if tip else "")
                          for k, label, opts, tip in FIELDS[kind] if k not in ("quality",))
         user = (f"ASSET KIND: {KIND_LABELS[kind]}\nBRIEF: {brief}\n"
                 + (f"\nTHE PROJECT THIS IS FOR (read from its repo):\n{repo['summary']}\n" if repo else "")
                 + f"\nFIELDS:\n{spec}\n\nReturn the JSON now.")
         data = llm_json(model, _EXPAND_SYSTEM, user, ctx=8192 if repo else 4096)
+        if isinstance(data, dict) and data.get("_refused"):
+            ref_msg = str(data.get("_note") or f"{model} refused this brief.")
+            return {"kind": kind, "title": "", "concept": "", "fields": {}, "notes": [ref_msg], "llm": model,
+                    "refused": True,
+                    "repo": {k: repo[k] for k in ("path", "name", "description", "colors", "existing_art")} if repo else None}
         got = data.get("fields") if isinstance(data, dict) else None
         if isinstance(got, dict):
             keys = {f[0] for f in FIELDS[kind]}
@@ -731,17 +663,15 @@ MODEL_SETTINGS = {
     "flux_schnell": {"steps": 4, "cfg": 1.0, "guidance": 0.0, "sampler": "euler", "scheduler": "simple"},
     "flux2_klein": {"steps": 4, "cfg": 1.0, "guidance": 0.0, "sampler": "euler", "scheduler": "simple"},
     "qwen_image": {"steps": 8, "cfg": 1.0, "guidance": 0.0, "sampler": "euler", "scheduler": "simple", "lightning": True},
-    **(addons.REGISTRY.asset_model_settings or {}),
+    **(addons.REGISTRY.models.get("asset_settings") or {}),
 }
 SAMPLERS = ("euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "uni_pc")
 SCHEDULERS = ("simple", "karras", "normal", "beta", "sgm_uniform")
-# Render canvas (~1 MP, multiples of 64) and default final size per "Used For".
 _USE_CANVAS = {
     "ultrawide": ((1536, 640), "3440x1440"), "phone": ((768, 1344), "1080x1920"), "banner": ((1536, 512), "1500x500"),
     "square": ((1024, 1024), "2048x2048"),
 }
-_FALLBACK_ORDER = list(addons.REGISTRY.asset_fallback_order or ["flux2_klein", "flux_dev", "flux_schnell", "qwen_image"])
-# Engines that read natural-language prompts through an LLM / T5 text encoder (no tag lists, no negatives needed).
+_FALLBACK_ORDER = list(addons.REGISTRY.models.get("asset_fallback_order") or ["flux2_klein", "flux_dev", "flux_schnell", "qwen_image"])
 NL_ENGINES = ("flux", "klein", "qwen")
 
 
@@ -769,8 +699,9 @@ def _choose_model(kind: str, f: dict[str, str], concept: str) -> tuple[str, str]
 
 
 def _choose_model_base(kind: str, f: dict[str, str], concept: str) -> tuple[str, str]:
-    if addons.REGISTRY.asset_choose_model:
-        picked = addons.REGISTRY.asset_choose_model(kind, f, concept)
+    chooser = addons.REGISTRY.models.get("asset_choose_model")
+    if chooser:
+        picked = chooser(kind, f, concept)
         if picked:
             return picked
     style = (f.get("style") or "").lower()
@@ -796,7 +727,6 @@ def _choose_model_base(kind: str, f: dict[str, str], concept: str) -> tuple[str,
         if fast:
             return "flux_schnell", "Sprite draft: Flux schnell (4 steps)."
         return "flux_dev", "Sprite: Flux.1 dev isolates a single object cleanly, which makes the cut-out easy."
-    # background
     elements = len([x for x in re.split(r",| and | with | next to | beside |;", f"{f.get('subject', '')}, {f.get('focal', '')}") if x.strip()])
     if fast:
         return "flux_schnell", "Background draft: Flux schnell (4 steps)."
@@ -822,7 +752,6 @@ def _canvas(kind: str, f: dict[str, str]) -> tuple[int, int, str]:
         if want:
             final = f"{want[0]}x{want[1]}"
             ratio = want[0] / want[1]
-            # keep ~1 MP at the asked-for aspect, multiples of 64
             h = int(round((1_048_576 / ratio) ** 0.5 / 64)) * 64
             w = int(round(h * ratio / 64)) * 64
         elif "same" in (f.get("final") or "").lower():
@@ -860,7 +789,7 @@ def _avoid_phrase(avoid: str) -> str:
 
 
 def _lettering(text: str) -> str:
-    """Text field -> prompt phrase. Presets give generic phrasing; anything else (or a "quoted" word) is the word."""
+    """Text field -> prompt phrase."""
     t = (text or "").strip()
     if not t or t.lower().startswith("none"):
         return ""
@@ -887,7 +816,7 @@ def python_prompt(kind: str, f: dict[str, str], concept: str, model: str) -> tup
     known = set(re.findall(r"[a-z]{3,}", " ".join(f.values()).lower()))
     words = re.findall(r"[a-z]{3,}", (concept or "").lower())
     if words and sum(w in known for w in words) / len(words) > 0.6:
-        concept = ""  # it only repeats the fields (the offline concept does); don't say it twice
+        concept = ""
     cutout = "transparent" in g("background").lower()
     neg_base = {"icon": "photo, photograph, busy background, multiple icons, icon sheet, mockup, device frame, hand, blurry, jpeg artifacts",
                 "background": "people, person, text, watermark, logo, frame, border, blurry, oversaturated",
@@ -968,7 +897,7 @@ def python_prompt(kind: str, f: dict[str, str], concept: str, model: str) -> tup
 
 
 _CORE_PROMPT_SYSTEM = (
-    "You write prompts for image diffusion models. Given an asset brief, its design fields and the target model, "
+    "You write prompts for all-ages image diffusion models. Given an asset brief, its design fields and the target model, "
     "write the single best prompt for that model. Keep every concrete detail from the fields and concept; never add "
     "objects that contradict them.\n"
     "FLUX models (also FLUX.2 and Qwen-Image): 2-5 natural sentences, most important thing first (what it is, then the subject, layout, colors, "
@@ -976,22 +905,21 @@ _CORE_PROMPT_SYSTEM = (
     "Also write a short negative prompt of comma-separated tags (or leave empty for FLUX).\n"
     "Reply with JSON only: {\"prompt\": \"...\", \"negative\": \"...\"}"
 )
-_PROMPT_SYSTEM = addons.REGISTRY.asset_prompt_system or _CORE_PROMPT_SYSTEM
+_PROMPT_SYSTEM = addons.REGISTRY.models.get("asset_prompt_system") or _CORE_PROMPT_SYSTEM
 
 
 def analyze(kind: str, fields: dict[str, str], concept: str = "", llm: str = "", use_llm: bool = True,
             read_code: bool = False) -> dict:
-    """Step 2. Everything the render needs, each choice with a reason. Keys: model, model_label, width, height,
-    steps, cfg, guidance, sampler, scheduler, seed, tile, remove_bg, pixelate, final_size, export_sizes,
-    prompt, negative, reasons (list), notes (list), llm."""
+    """Step 2. Everything the render needs, each choice with a reason."""
     if kind not in FIELDS:
         raise ValueError(f"Unknown asset kind: {kind}")
     f = {k: str(v or "") for k, v in (fields or {}).items()}
     model, why = _choose_model(kind, f, concept)
     reasons = [f"Model: {why}"]
+    ckpt_renderer = addons.REGISTRY.models.get("asset_checkpoint_renderer")
     if not model_installed(model):
         alt = next((m for m in _FALLBACK_ORDER if m != model and model_installed(m) and
-                    (kind != "texture" or not addons.REGISTRY.asset_checkpoint_renderer or ASSET_MODELS[m]["engine"] not in NL_ENGINES)), None)
+                    (kind != "texture" or not ckpt_renderer or ASSET_MODELS[m]["engine"] not in NL_ENGINES)), None)
         if alt:
             reasons.append(f"{ASSET_MODELS[model]['label']} isn't installed here, so {ASSET_MODELS[alt]['label']} was picked instead "
                            "(start_graphical_studio.sh --model-sync --assets).")
@@ -1015,8 +943,9 @@ def analyze(kind: str, fields: dict[str, str], concept: str = "", llm: str = "",
 
     remove_bg = "none"
     hollow = kind == "frame" and any(w in f.get("center", "").lower() for w in ("transparent", "hollow"))
+    anime_models = addons.REGISTRY.models.get("anime_asset_models", set())
     if kind in ("icon", "sprite", "frame") and ("transparent" in f.get("background", "").lower() or hollow):
-        remove_bg = "anime" if model in addons.REGISTRY.anime_asset_models else "general"
+        remove_bg = "anime" if model in anime_models else "general"
         reasons.append("Transparent outside: cut out (rembg, CPU) to a PNG with alpha.")
     if hollow:
         reasons.append("Hollow center: rendered as a flat white interior on black, then the interior is flood-filled to "
@@ -1046,7 +975,7 @@ def analyze(kind: str, fields: dict[str, str], concept: str = "", llm: str = "",
         reasons.append(f"Sampler {st['sampler']}/{st['scheduler']}, {st['steps']} steps, CFG {st['cfg']}: the model card's sweet spot.")
 
     prompt, negative = python_prompt(kind, f, concept, model)
-    notes, used = [], ""
+    notes, used, refused = [], "", False
     lm, lwhy = pick_llm(read_code=read_code, requested=llm) if use_llm else (None, "LLM off: Python wrote the prompt.")
     if lm:
         prompt_style = "FLUX" if ASSET_MODELS[model]["engine"] in NL_ENGINES else "checkpoint tags"
@@ -1059,7 +988,10 @@ def analyze(kind: str, fields: dict[str, str], concept: str = "", llm: str = "",
                    if tile != "none" else "")
                 + "\n\nReturn the JSON now.")
         data = llm_json(lm, _PROMPT_SYSTEM, user, ctx=4096, temperature=0.4)
-        if data and isinstance(data.get("prompt"), str) and len(data["prompt"].strip()) > 20:
+        if isinstance(data, dict) and data.get("_refused"):
+            prompt, refused = "", True
+            notes.append(str(data.get("_note") or f"{lm} refused this request."))
+        elif data and isinstance(data.get("prompt"), str) and len(data["prompt"].strip()) > 20:
             prompt = data["prompt"].strip()[:3000]
             llm_neg = data.get("negative") if isinstance(data.get("negative"), str) else ""
             negative = ", ".join(dict.fromkeys(x.strip() for x in f"{llm_neg}, {f.get('avoid', '')}".split(",") if x.strip()))
@@ -1069,10 +1001,13 @@ def analyze(kind: str, fields: dict[str, str], concept: str = "", llm: str = "",
             notes.append(f"{lm} failed ({LAST_LLM_ERROR['text'] or 'no usable prompt'}); Python assembled it from the fields.")
     else:
         notes.append(f"{lwhy} The prompt was assembled from the fields.")
-    return {"kind": kind, "model": model, "model_label": ASSET_MODELS[model]["label"], "width": w, "height": h,
-            **st, "seed": random.randint(1000, 999_999), "tile": tile, "remove_bg": remove_bg, "pixelate": pixelate, "hollow": hollow,
-            "final_size": final, "export_sizes": exports, "prompt": prompt, "negative": negative,
-            "reasons": reasons, "notes": notes, "llm": used}
+    out = {"kind": kind, "model": model, "model_label": ASSET_MODELS[model]["label"], "width": w, "height": h,
+           **st, "seed": random.randint(1000, 999_999), "tile": tile, "remove_bg": remove_bg, "pixelate": pixelate, "hollow": hollow,
+           "final_size": final, "export_sizes": exports, "prompt": prompt, "negative": negative,
+           "reasons": reasons, "notes": notes, "llm": used}
+    if refused:
+        out["refused"] = True
+    return out
 
 
 # ── Step 3: command ───────────────────────────────────────────────────────────
@@ -1122,3 +1057,6 @@ def build_command(plan: dict, out_path: str) -> list[str]:
 def model_choices() -> list[tuple[str, str, bool]]:
     """(key, label, installed) for the model picker."""
     return [(k, v["label"], model_installed(k)) for k, v in ASSET_MODELS.items()]
+
+
+addons.attach_compat("studio_assets", sys.modules[__name__])

@@ -1,16 +1,16 @@
-"""Builder-to-tab compatibility rules, best-setting selection, and restriction checks."""
+"""Builder-to-tab compatibility rules, best-setting selection, and model routing."""
 
 import re
+import sys
 
 import addons
-from wan_studio_helpers import CORE_PHOTO_MODEL_SETTINGS, MODEL_OPTIONS, VIDEO_MODEL_SETTINGS, get_photo_model_options
+from studio_helpers import CORE_PHOTO_MODEL_SETTINGS, get_photo_model_options
 
 
 # Styles handled well by anime-focused checkpoints/prompts.
 ANIME_TERMS = ("anime", "jrpg", "manga", "visual novel", "cel shad", "cel-shad", "2.5d", "comic",
                "pixel", "concept art", "oil painting", "illustration")
 REALISTIC_TERMS = ("realistic", "cinema", "vlog", "noir", "tiktok", "editorial", "analog", "polaroid", "raw photo", "35mm")
-CLEAN_TERMS = ("rating_safe", "sfw", "family-friendly", "clean", "censored", "fully clothed")
 
 
 def _has_any(text: str, terms) -> bool:
@@ -37,15 +37,17 @@ def analyze_builder_intent(values: dict[str, str], extra_text: str = "") -> dict
         "is_wide": is_wide,
         "has_people": has_people,
     }
-    if addons.REGISTRY.classify_intent:
-        return addons.REGISTRY.classify_intent(values, extra_text, intent)
+    classify = addons.REGISTRY.catalog.get("classify_intent")
+    if classify:
+        return classify(values, extra_text, intent)
     return intent
 
 
 def best_photo_model(intent: dict) -> str:
     """Choose the best photo model key for the classified intent."""
-    if addons.REGISTRY.choose_photo_model:
-        return addons.REGISTRY.choose_photo_model(intent, "flux2_klein")
+    chooser = addons.REGISTRY.catalog.get("choose_photo_model")
+    if chooser:
+        return chooser(intent, "flux2_klein")
     return "flux2_klein"
 
 
@@ -53,14 +55,14 @@ def content_negatives(intent: dict) -> list[str]:
     adds = []
     if intent["is_body_framing"]:
         adds.extend(["close-up", "headshot", "portrait", "cropped"])
-    if addons.REGISTRY.extra_content_negatives:
-        adds.extend(addons.REGISTRY.extra_content_negatives(intent))
+    extra_fn = addons.REGISTRY.catalog.get("extra_content_negatives")
+    if extra_fn:
+        adds.extend(extra_fn(intent))
     return adds
 
 
 # Per-model render settings.
-PHOTO_MODEL_SETTINGS = dict(addons.REGISTRY.photo_model_settings or CORE_PHOTO_MODEL_SETTINGS)
-VIDEO_SETTINGS = {**VIDEO_MODEL_SETTINGS["2.2"], "fps": 16} if "2.2" in VIDEO_MODEL_SETTINGS else {}
+PHOTO_MODEL_SETTINGS = dict(addons.REGISTRY.models.get("photo_settings") or CORE_PHOTO_MODEL_SETTINGS)
 # Extra negatives a dropdown choice needs to hold its look: field -> short label -> negatives.
 FIELD_NEGATIVES = {
     "style": {
@@ -82,7 +84,6 @@ FIELD_NEGATIVES = {
     },
 }
 WIDE_POSITIONS = ("Far Left", "Left Third", "Right Third", "Far Right", "Small Figure, Vast Space")
-QUICK_MOTION_TERMS = ("wave", "nod", "blink", "glance", "turn", "flinch", "jump")
 
 
 def recommended_photo_settings(values: dict[str, str], extra_text: str = "") -> dict:
@@ -102,16 +103,6 @@ def recommended_photo_settings(values: dict[str, str], extra_text: str = "") -> 
             "intent": intent}
 
 
-def recommended_video_settings(values: dict[str, str], extra_text: str = "") -> dict:
-    if not addons.REGISTRY.video_enabled:
-        raise RuntimeError("Video generation is not enabled in the public edition.")
-    intent = analyze_builder_intent(values, extra_text)
-    motion = " ".join((values.get(k) or "") for k in ("motion", "expression", "camera_move")).lower()
-    duration = 2.0 if any(t in motion for t in QUICK_MOTION_TERMS) else 4.0
-    return {"version": "2.2", "width": 768, "height": 432, "duration": duration, **VIDEO_SETTINGS,
-            "neg_additions": content_negatives(intent) + style_negatives(values), "intent": intent}
-
-
 def style_negatives(values: dict[str, str]) -> list[str]:
     """Negatives the chosen style, color treatment and background need (no duplicates)."""
     out: list[str] = []
@@ -126,12 +117,13 @@ def evaluate_photo_compat(values: dict[str, str], extra_text: str = "") -> dict:
     intent = analyze_builder_intent(values, extra_text)
     all_models = get_photo_model_options()
     allowed, restricted, reduced = [], [], {}
+    filter_fn = addons.REGISTRY.catalog.get("filter_photo_compat")
 
     for key, label in all_models:
         if key == "all":
             continue
-        if addons.REGISTRY.filter_photo_compat:
-            restrict_reason, reduced_warn = addons.REGISTRY.filter_photo_compat(intent, key, label)
+        if filter_fn:
+            restrict_reason, reduced_warn = filter_fn(intent, key, label)
             if restrict_reason:
                 restricted.append((key, label, restrict_reason))
                 continue
@@ -144,7 +136,7 @@ def evaluate_photo_compat(values: dict[str, str], extra_text: str = "") -> dict:
         best_key = allowed[0][0]
     rec = recommended_photo_settings(values, extra_text)
     best_preset = rec["preset"]
-    fallback_key = addons.REGISTRY.default_photo_model or "flux2_klein"
+    fallback_key = addons.REGISTRY.models.get("default_photo_model") or "flux2_klein"
     best_cfg = PHOTO_MODEL_SETTINGS.get(best_key, PHOTO_MODEL_SETTINGS[fallback_key])["cfg"]
     neg_adds = content_negatives(intent)
 
@@ -160,32 +152,4 @@ def evaluate_photo_compat(values: dict[str, str], extra_text: str = "") -> dict:
     }
 
 
-def evaluate_video_compat(values: dict[str, str], has_start_image: bool, extra_text: str = "") -> dict:
-    """Return best video model, restricted models, start-image requirement, and negative guards."""
-    if not addons.REGISTRY.video_enabled:
-        raise RuntimeError("Video generation is not enabled in the public edition.")
-    intent = analyze_builder_intent(values, extra_text)
-    overrides = addons.REGISTRY.video_compat_overrides(intent, has_start_image) if addons.REGISTRY.video_compat_overrides else {}
-    restrict_21 = overrides.get("restrict_21") if addons.REGISTRY.video_compat_overrides else (
-        "Text-only model does not support Start Image (I2V)" if has_start_image else None
-    )
-    allowed, restricted = [], []
-    for ver, label in MODEL_OPTIONS:
-        if ver == "2.1" and restrict_21:
-            restricted.append((ver, label, restrict_21))
-        else:
-            allowed.append((ver, label))
-
-    neg_adds = content_negatives(intent)
-    needs_start_image = bool(overrides.get("needs_start_image", False))
-    return {
-        "intent": intent,
-        "best_model": "2.2",
-        "best_preset": "16:9 Cutscene (768x432, 4.0s @ 16 fps)",
-        "best_cfg": 5.0,
-        "best_steps": 20,
-        "allowed_models": allowed,
-        "restricted_models": restricted,
-        "needs_start_image": needs_start_image,
-        "neg_additions": neg_adds,
-    }
+addons.attach_compat("studio_compat", sys.modules[__name__])

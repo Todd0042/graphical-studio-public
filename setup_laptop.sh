@@ -18,10 +18,10 @@ fi
 "$ROOT_DIR/.venv/bin/pip" install huggingface_hub hf_transfer pillow numpy rembg onnxruntime
 
 echo "=== 3. Downloading the image models in models.json ==="
-"$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/wan_models.py" --model-sync || true
+"$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/studio_models.py" --model-sync || true
 
 echo "=== 4. Pulling the LLMs in models.json ==="
-"$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/wan_models.py" --llm-sync --all || \
+"$ROOT_DIR/.venv/bin/python" "$ROOT_DIR/studio_models.py" --llm-sync --all || \
   echo "Start Ollama, then run: $ROOT_DIR/start_graphical_studio.sh --llm-sync --all"
 
 echo ""

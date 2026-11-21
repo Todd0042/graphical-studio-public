@@ -7,7 +7,7 @@ Offline fallback: keyword vibe profiles + direct-mention matching.
 import re
 
 import addons
-from wan_prompt_catalog import ALL_FIELDS, FIELD_BY_KEY
+from studio_prompt_catalog import ALL_FIELDS, FIELD_BY_KEY
 
 
 def _label(opt: str) -> str:
@@ -34,132 +34,128 @@ def is_custom_text_only(values: dict[str, str], notes: str) -> bool:
 # ── Offline fallback: vibe profiles ──────────────────────────────────────────
 # Each profile: trigger words -> field labels. Fields a profile leaves out come from _NEUTRAL.
 _NEUTRAL = {
-    "style": "American Realistic Photo", "lighting": "Golden Hour Sunlight", "framing": "Upper Body (Waist-Up, Anti-Zoom)",
+    "style": "American Realistic Photo", "lighting": "Golden Hour Sunlight", "framing": "Upper Body (Waist-Up)",
     "gender": "Solo Woman", "symmetry": "Everyday Natural Pretty", "age": "Mid 20s Adult", "build": "Slender Athletic",
     "hair_color": "Warm Caramel Brown", "hair_style": "Soft Loose Shoulder Waves", "eyes": "Hazel (Green-Gold Flecks)",
     "skin": "Natural Realistic Texture", "makeup_acc": "Soft Everyday Dewy Glam", "attire": "Fitted White Tee & Blue Jeans",
     "pose": "Standing Relaxed (Hip Shift)", "surface_prop": "Open Unobstructed Floor / Ground", "scene": "Botanical Park Walkway",
-    "motion": "Adjusting Hair / Strands", "expression": "Warm Genuine Smile", "camera_move": "Natural Handheld Micro-Sway",
-    "physics": "Natural Breathing & Eye Blinks",
 }
 
 _VIBES = [
-    ({"noir", "detective", "crime", "gritty", "moody", "mysterious", "shadow", "shadows", "smoky", "rain", "rainy", "night", "dark", "brooding", "femme", "fatale"}, {
-        "style": "Dark Neo-Noir Cinema", "lighting": "Dramatic Chiaroscuro Rim", "framing": "Three-Quarter (Knees-Up, Anti-Zoom)",
+    ({"noir", "detective", "crime", "gritty", "moody", "mysterious", "shadow", "shadows", "smoky", "rain", "rainy", "night", "dark", "brooding"}, {
+        "style": "Dark Neo-Noir Cinema", "lighting": "Dramatic Chiaroscuro Rim", "framing": "Three-Quarter (Knees-Up)",
         "symmetry": "Angular High-Fashion", "age": "Early 30s Prime", "hair_color": "Jet Raven Black", "hair_style": "Sleek Straight Tucked Behind Ear",
         "eyes": "Ice-Blue / Storm Grey", "makeup_acc": "Winged Eyeliner & Bold Lip", "attire": "Leather Moto Jacket & Dark Jeans",
         "pose": "Leaning Back / Angled Relaxed", "surface_prop": "Against Wall / Doorframe", "scene": "Urban Rain-Slicked Alley",
-        "motion": "Slow Over-Shoulder Turn", "expression": "Cool Enigmatic Stare", "camera_move": "Slow Cinematic Push-In",
-        "physics": "Shimmering Puddle Ripples & Fog",
     }),
     ({"cyberpunk", "neon", "synthwave", "futuristic", "future", "cyber", "techwear", "hacker", "dystopian", "sci", "scifi", "space", "starship", "android", "robot"}, {
-        "style": "Cyberpunk Synthwave Art", "lighting": "RGB Neon Accent Backlight", "framing": "Cowboy Shot (Thighs-Up, Anti-Zoom)",
+        "style": "Cyberpunk Synthwave Art", "lighting": "RGB Neon Accent Backlight", "framing": "Cowboy Shot (Thighs-Up)",
         "symmetry": "Angular High-Fashion", "age": "Late 20s Adult", "hair_color": "Midnight Blue / Teal Tips", "hair_style": "Wolf Cut Shaggy Layers",
         "eyes": "Glowing Arcane / Cyber Irises", "skin": "Smooth Stylized Finish", "makeup_acc": "Subtle Tattoos & Piercings", "attire": "Cyberpunk Techwear Jacket",
-        "pose": "Standing Tall Confident", "scene": "Urban Rain-Slicked Alley", "motion": "Confident Walk Forward",
-        "expression": "Focused Intense Determination", "camera_move": "Slow Horizontal Arc Orbit", "physics": "Falling Rain & Mist Droplets",
+        "pose": "Standing Tall Confident", "scene": "Urban Rain-Slicked Alley",
     }),
     ({"fantasy", "medieval", "elf", "elven", "wizard", "sorceress", "knight", "dragon", "quest", "adventurer", "magic", "magical", "tavern", "enchanted", "ruins", "rpg", "warrior"}, {
-        "style": "Hand-Painted Fantasy Concept", "lighting": "Warm Hearth Ember Glow", "framing": "Full Body (Head-to-Toe, Anti-Zoom)",
+        "style": "Hand-Painted Fantasy Concept", "lighting": "Warm Hearth Ember Glow", "framing": "Full Body (Head-to-Toe)",
         "gender": "Fantasy Adventurer Woman", "symmetry": "High Symmetry (Classic)", "hair_color": "Copper Auburn Red", "hair_style": "Long Flowing Layered",
         "eyes": "Emerald Green", "makeup_acc": "Layered Delicate Gold Jewelry", "attire": "Fantasy Leather RPG Armor", "pose": "Standing Tall Confident",
-        "surface_prop": "Holding Fantasy Weapon / Lantern", "scene": "Ancient Forest Ruins", "motion": "Alert Combat Ready Shift",
-        "expression": "Focused Intense Determination", "camera_move": "Low-to-High Crane Rise", "physics": "Drifting Snowflakes / Embers",
+        "surface_prop": "Holding Fantasy Weapon / Lantern", "scene": "Ancient Forest Ruins",
     }),
     ({"beach", "summer", "ocean", "sea", "coast", "tropical", "sunny", "vacation", "surf", "seaside", "island", "sand"}, {
-        "style": "American Realistic Photo", "lighting": "Golden Hour Sunlight", "framing": "Full Body (Head-to-Toe, Anti-Zoom)",
+        "style": "American Realistic Photo", "lighting": "Golden Hour Sunlight", "framing": "Full Body (Head-to-Toe)",
         "hair_color": "Golden Honey Blonde", "hair_style": "Beach Tousled Waves", "eyes": "Crystal Ocean Blue", "skin": "Warm Sun-Kissed Olive",
         "makeup_acc": "Stylish Sunglasses", "attire": "Floral Summer Sundress", "pose": "Mid-Stride Walking Forward", "scene": "Sandy Ocean Coastline",
-        "motion": "Playful Hair Flip & Half-Spin", "expression": "Candid Spontaneous Laugh", "camera_move": "Smooth Forward Tracking Shot",
-        "physics": "Coastal Spray & Rolling Waves",
     }),
     ({"cozy", "comfy", "lazy", "sunday", "home", "homey", "relaxed", "relaxing", "chill", "snug", "rainy-day", "blanket", "sweater", "morning", "coffee"}, {
-        "style": "35mm Analog Film (Kodak Portra)", "lighting": "Dappled Filtered Sunlight", "framing": "Upper Body (Waist-Up, Anti-Zoom)",
-        "hair_style": "Casual Messy Bun", "makeup_acc": "Bare-Faced / Minimal Natural", "attire": "Oversized Off-Shoulder Sweater",
+        "style": "35mm Analog Film (Kodak Portra)", "lighting": "Dappled Filtered Sunlight", "framing": "Upper Body (Waist-Up)",
+        "hair_style": "Casual Messy Bun", "makeup_acc": "Bare-Faced / Minimal Natural", "attire": "Cozy Knit Pullover Sweater",
         "pose": "Seated Lounging Back", "surface_prop": "Holding Iced Coffee / Mug", "scene": "Modern Apartment Living Room",
-        "motion": "Casual Drink Sip", "expression": "Serene Dreamy Gaze", "camera_move": "Locked Tripod Steady", "physics": "Rising Wispy Steam",
     }),
-    ({"romantic", "romance", "date", "candle", "candlelit", "intimate", "love", "elegant", "evening", "dinner", "valentine"}, {
-        "style": "Cinematic Film Still", "lighting": "Dim Romantic Candlelight", "framing": "Medium Close-Up (Chest-Up)",
+    ({"romantic", "evening", "dinner", "elegant", "formal", "luxury"}, {
+        "style": "Cinematic Film Still", "lighting": "Warm Hearth Ember Glow", "framing": "Medium Close-Up (Chest-Up)",
         "symmetry": "Soft Oval Delicate", "hair_color": "Rich Chestnut Brunette", "hair_style": "Voluminous Bouncy Curls", "eyes": "Warm Chocolate Brown",
-        "makeup_acc": "Smoky Evening Glam", "attire": "Satin Evening Slip Dress", "pose": "Looking Back Over Shoulder",
-        "surface_prop": "By Floor-to-Ceiling Window / Balcony", "scene": "Upscale Hotel Suite", "motion": "Subtle Relaxed Leaning In",
-        "expression": "Flirtatious Coy Half-Smile", "camera_move": "Slow Cinematic Push-In", "physics": "Subtle Jewelry & Specular Shimmer",
+        "makeup_acc": "Smoky Evening Glam", "attire": "Tailored Formal Evening Dress", "pose": "Looking Back Over Shoulder",
+        "surface_prop": "By Floor-to-Ceiling Window / Balcony", "scene": "Upscale Hotel Suite",
     }),
-    ({"gym", "workout", "fitness", "athletic", "sporty", "running", "training", "sweat", "sweaty", "yoga", "exercise", "athlete"}, {
-        "style": "Creator 4K Webcam", "lighting": "Bright Morning Daylight", "framing": "Three-Quarter (Knees-Up, Anti-Zoom)",
+    ({"gym", "workout", "fitness", "athletic", "sporty", "running", "training", "yoga", "exercise", "athlete"}, {
+        "style": "Creator 4K Webcam", "lighting": "Bright Morning Daylight", "framing": "Three-Quarter (Knees-Up)",
         "build": "Toned Fitness / Core", "hair_style": "High Sleek Ponytail", "skin": "Post-Workout Dewy Flush", "makeup_acc": "Bare-Faced / Minimal Natural",
-        "attire": "Athleisure Crop Tank & Leggings", "pose": "Stretching Arms Overhead", "scene": "Boutique Fitness Gym",
-        "motion": "Effortless Stretch & Exhale", "expression": "Focused Intense Determination", "camera_move": "Slow Lateral Slider Pan",
+        "attire": "Athletic Tank & Leggings", "pose": "Stretching Arms Overhead", "scene": "Boutique Fitness Gym",
     }),
     ({"vlog", "vlogger", "streamer", "stream", "gamer", "gaming", "creator", "influencer", "youtube", "tiktok", "selfie", "webcam", "podcast"}, {
         "style": "Casual Smartphone Vlog", "lighting": "Soft Front Ring-Light + Warm Fill", "framing": "Medium Close-Up (Chest-Up)",
         "age": "Early 20s Adult", "hair_style": "Curtain Bangs + Long Layers", "makeup_acc": "Over-Ear Studio Headphones",
         "attire": "Oversized Graphic Tee & Cargos", "pose": "Seated Upright Relaxed", "surface_prop": "Next to Desk Microphone & Monitors",
-        "scene": "Creator / Gaming Studio Room", "motion": "Conversational Talk & Hand Gestures", "expression": "Animated Storytelling",
-        "camera_move": "Subtle Breathing Selfie Motion",
+        "scene": "Creator / Gaming Studio Room",
     }),
     ({"fashion", "editorial", "vogue", "model", "runway", "luxury", "glamour", "glam", "chic", "couture", "magazine", "high-fashion", "executive", "powerful", "boss"}, {
-        "style": "Editorial Magazine Portrait", "lighting": "Diffused Studio Softbox", "framing": "Three-Quarter (Knees-Up, Anti-Zoom)",
+        "style": "Editorial Magazine Portrait", "lighting": "Diffused Studio Softbox", "framing": "Three-Quarter (Knees-Up)",
         "symmetry": "Top Model Sculpted", "build": "Tall Slender Model", "hair_color": "Platinum Ice Blonde", "hair_style": "Chin-Length Sleek Bob",
         "makeup_acc": "Winged Eyeliner & Bold Lip", "attire": "Tailored Executive Blazer Suit", "pose": "Standing Tall Confident",
-        "scene": "Minimalist Photo Studio", "motion": "Slow Over-Shoulder Turn", "expression": "Cool Enigmatic Stare",
-        "camera_move": "Slow Horizontal Arc Orbit", "physics": "Light Breeze in Hair & Cloth",
+        "scene": "Minimalist Photo Studio",
     }),
     ({"retro", "vintage", "80s", "90s", "70s", "nostalgic", "nostalgia", "diner", "polaroid", "throwback", "americana"}, {
-        "style": "90s Instant Polaroid", "lighting": "Direct On-Camera Flash", "framing": "Cowboy Shot (Thighs-Up, Anti-Zoom)",
+        "style": "90s Instant Polaroid", "lighting": "Direct On-Camera Flash", "framing": "Cowboy Shot (Thighs-Up)",
         "hair_color": "Dirty Blonde / Balayage", "hair_style": "Voluminous Bouncy Curls", "makeup_acc": "Winged Eyeliner & Bold Lip",
-        "attire": "Cropped Cardigan & High-Waist Jeans", "pose": "Seated Upright Relaxed", "surface_prop": "At Counter / Kitchen Island",
-        "scene": "Retro American Diner", "motion": "Casual Drink Sip", "expression": "Playful Wink & Smirk", "camera_move": "Natural Handheld Micro-Sway",
+        "attire": "Buttoned Cardigan & High-Waist Jeans", "pose": "Seated Upright Relaxed", "surface_prop": "At Counter / Kitchen Island",
+        "scene": "Retro American Diner",
     }),
-    ({"anime", "manga", "waifu", "kawaii", "cute", "jrpg", "visual-novel", "chibi", "otaku"}, {
-        "style": "Anime Visual Novel", "lighting": "Bright Morning Daylight", "framing": "Upper Body (Waist-Up, Anti-Zoom)",
+    ({"anime", "manga", "kawaii", "cute", "jrpg", "visual-novel", "chibi"}, {
+        "style": "Anime Visual Novel", "lighting": "Bright Morning Daylight", "framing": "Upper Body (Waist-Up)",
         "symmetry": "Heart-Shaped Youthful", "age": "18-21 Young Adult", "hair_color": "Pastel Pink / Rose Gold", "hair_style": "Twin Braids / Space Buns",
-        "eyes": "Large Round Bright Eyes", "skin": "Smooth Stylized Finish", "attire": "Off-Shoulder Crop Top & Mini Skirt",
-        "pose": "Dynamic Hip Sway / Dance Pose", "motion": "Rhythmic Upper-Body Dance Sway", "expression": "Wide-Eyed Excited Reaction",
-        "physics": "Light Breeze in Hair & Cloth",
+        "eyes": "Large Round Bright Eyes", "skin": "Smooth Stylized Finish", "attire": "Layered Tank & Open Flannel",
+        "pose": "Dynamic Dance Movement",
     }),
     ({"nature", "forest", "park", "garden", "spring", "flowers", "floral", "meadow", "botanical", "peaceful", "serene", "calm", "dreamy", "ethereal"}, {
-        "style": "Editorial Magazine Portrait", "lighting": "Dappled Filtered Sunlight", "framing": "Three-Quarter (Knees-Up, Anti-Zoom)",
+        "style": "Editorial Magazine Portrait", "lighting": "Dappled Filtered Sunlight", "framing": "Three-Quarter (Knees-Up)",
         "symmetry": "Soft Oval Delicate", "hair_color": "Strawberry Blonde / Ginger", "hair_style": "Long Flowing Layered",
         "skin": "Fair with Light Freckles", "makeup_acc": "Bare-Faced / Minimal Natural", "attire": "Floral Summer Sundress",
-        "pose": "Mid-Stride Walking Forward", "scene": "Botanical Park Walkway", "motion": "Glancing Down Then Looking Up",
-        "expression": "Serene Dreamy Gaze", "camera_move": "Smooth Forward Tracking Shot", "physics": "Floating Dust Motes",
+        "pose": "Mid-Stride Walking Forward", "scene": "Botanical Park Walkway",
     }),
 ]
-
-for _scene_name, _extra_words in addons.REGISTRY.vibe_extra_triggers:
-    for _trigs, _prof in _VIBES:
-        if _prof.get("scene") == _scene_name:
-            _trigs.update(_extra_words)
 
 _MALE_OVERRIDES = {
     "symmetry": "Strong Chiseled Structure", "build": "Muscular Broad-Shouldered", "hair_style": "Clean Short Textured Cut",
     "makeup_acc": "None / Custom", "attire": "Open-Collar Button-Down & Chinos", "hair_color": "Dark Espresso Brown",
 }
 _FEMALE_ONLY_ATTIRE = {
-    "Floral Summer Sundress", "Satin Evening Slip Dress", "Off-Shoulder Crop Top & Mini Skirt", "Cropped Cardigan & High-Waist Jeans",
-    "Athleisure Crop Tank & Leggings", "Oversized Off-Shoulder Sweater",
+    "Floral Summer Sundress", "Tailored Formal Evening Dress", "Buttoned Cardigan & High-Waist Jeans",
+    "Athletic Tank & Leggings", "Cozy Knit Pullover Sweater",
 }
-_PERSON_KEYS = {"symmetry", "age", "build", "hair_color", "hair_style", "eyes", "skin", "makeup_acc", "attire", "pose", "motion", "expression"}
+_PERSON_KEYS = {"symmetry", "age", "build", "hair_color", "hair_style", "eyes", "skin", "makeup_acc", "attire", "pose"}
 _MALE_WORDS = {"man", "men", "guy", "male", "boy", "dude", "gentleman", "husband", "boyfriend", "he", "him", "his", "king", "prince"}
 _EMPTY_WORDS = {"empty", "landscape", "no people", "nobody", "unoccupied", "deserted", "scenery"}
+_GENERIC_LABEL_WORDS = {
+    "none", "custom", "with", "and", "the", "soft", "warm", "dark", "light", "natural", "modern", "casual", "subtle", "slow",
+    "smooth", "long", "short", "high", "low", "open", "front", "back", "rich", "deep", "bright", "cool", "clean", "fair",
+    "solo", "together", "small", "full", "upper", "relaxed", "tone", "texture", "finish", "style", "shot",
+    "island", "counter", "ground", "floor", "body", "face", "eyes", "glow", "adult", "prime", "only", "slight", "into",
+}
+_ALIASES = {"redhead": {"auburn"}, "brunet": {"brunette"}, "suit": {"blazer"}}
+_LLM_ORDER = [k for k in (
+    "scene", "gender", "style", "lighting", "age", "attire", "pose", "surface_prop",
+    "framing", "symmetry", "build", "hair_color", "hair_style", "eyes", "skin", "makeup_acc",
+) if k in FIELD_BY_KEY]
+
+_vibe_overlay = addons.REGISTRY.catalog.get("vibe_overlay")
+if _vibe_overlay:
+    if "neutral" in _vibe_overlay:
+        _NEUTRAL = _vibe_overlay["neutral"]
+    if "vibes" in _vibe_overlay:
+        _VIBES = _vibe_overlay["vibes"]
+    if "female_only_attire" in _vibe_overlay:
+        _FEMALE_ONLY_ATTIRE = _vibe_overlay["female_only_attire"]
+    if "person_keys" in _vibe_overlay:
+        _PERSON_KEYS = _vibe_overlay["person_keys"]
+    if "aliases" in _vibe_overlay:
+        _ALIASES = {**_ALIASES, **_vibe_overlay["aliases"]}
+    if "generic_label_words" in _vibe_overlay:
+        _GENERIC_LABEL_WORDS = set(_vibe_overlay["generic_label_words"])
+    if "llm_order" in _vibe_overlay:
+        _LLM_ORDER = [k for k in _vibe_overlay["llm_order"] if k in FIELD_BY_KEY]
 
 
 def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9][a-z0-9'-]*", (text or "").lower()))
-
-
-# Label words too generic (or too ambiguous, like "island" in "Kitchen Island") to count as a direct request.
-_GENERIC_LABEL_WORDS = {
-    "none", "custom", "with", "and", "the", "soft", "warm", "dark", "light", "natural", "modern", "casual", "subtle", "slow",
-    "smooth", "long", "short", "high", "low", "open", "front", "back", "rich", "deep", "bright", "cool", "clean", "fair",
-    "anti", "zoom", "solo", "together", "small", "full", "upper", "relaxed", "tone", "texture", "finish", "style", "shot",
-    "island", "counter", "ground", "floor", "body", "face", "eyes", "glow", "adult", "prime", "only", "slight", "into",
-}
-
-
-_ALIASES = {"redhead": {"auburn"}, "brunet": {"brunette"}, "suit": {"blazer"}, **addons.REGISTRY.vibe_extra_aliases}
 
 
 def _words(text: str) -> set[str]:
@@ -230,29 +226,23 @@ def _fallback_fields(notes: str) -> dict[str, str]:
         elif key in labels:
             out[key] = _opt(key, labels[key])
         else:
-            out[key] = opts[0]  # e.g. rating: leave at Standard unless the text says otherwise
+            out[key] = opts[0]
     return out
 
 
 # ── Primary: local instruct LLM picks one option per field ─────────────────
-_LLM_ORDER = [k for k in (
-    "scene", "gender", "style", "lighting", "rating", "age", "attire", "pose", "surface_prop", "expression",
-    "framing", "symmetry", "build", "hair_color", "hair_style", "eyes", "skin", "makeup_acc", "motion", "camera_move", "physics",
-) if k in FIELD_BY_KEY]
-
 
 def _llm_messages(notes: str) -> tuple[str, str]:
-    sys_msg = addons.REGISTRY.vibe_llm_system_prompt or (
-        "You are a creative director for an AI image generator. "
+    sys_msg = addons.REGISTRY.llm.get("vibe_system_prompt") or (
+        "You are a creative director for an all-ages AI image studio. "
         "Given a short custom description, choose the ONE best option for EVERY category so the whole scene is coherent "
         "and captures the description's vibe, mood, era and setting. Anything the description states explicitly must be honored "
         "(subject, gender, hair, clothing or outfit, place, time of day). Fill in everything it does not mention with choices "
         "that fit its vibe, and vary your picks: do not default to the first option in a list. "
-        "Rules: rating is None unless the description itself asks for a specific tone. "
-        "All person traits must fit ONE believable subject of the chosen gender and age "
+        "Rules: all person traits must fit ONE believable subject of the chosen gender and age "
         "(no makeup, dresses or feminine hairstyles on a man unless described). "
         "Pose, prop, scene, lighting and attire must all make sense together in the same place and time "
-        "(e.g. no bed or kitchen counter in a forest, no sundress in armor-themed fantasy). "
+        "(e.g. no kitchen counter in a forest, no sundress in armor-themed fantasy). "
         "If the scene has no people, answer None for every person, attire and pose category.\n"
         "Reply format: first 'VIBE: <at most 15 words>', then fill in EVERY line of the ANSWER TEMPLATE as 'key=Option Name', "
         "copying an option name exactly from that category's list. No prose, no explanations."
@@ -349,7 +339,7 @@ def generate_fields_from_vibe(notes: str, use_llm: bool = True, model: str | Non
     """Return (field_key -> option value for every Builder field, status note). model: the LLM to use."""
     fallback = _fallback_fields(notes)
     if use_llm:
-        from wan_rectifier import run_prompt_llm_checked
+        from studio_rectifier import run_prompt_llm_checked
 
         sys_msg, user_msg = _llm_messages(notes)
         holder = {}
@@ -365,12 +355,10 @@ def generate_fields_from_vibe(notes: str, use_llm: bool = True, model: str | Non
             sys_msg, user_msg, model=model, max_tokens=520, ctx=6144, temperature=0.25,
             timeout=180, parse=parse, verb="generated details",
         )
-        if refused and not addons.REGISTRY.allow_refusal_fallback:
+        if refused and not addons.REGISTRY.llm.get("allow_refusal_bypass"):
             return {}, note or "The instruct LLM refused this request."
         picks = holder.get("picks")
         if picks:
-            # Precedence: direct words in the text > matched vibe profile > LLM > neutral defaults.
-            # The LLM keeps the subject (gender) since it reads who the text is about better than keywords.
             layered = dict(picks)
             for key, lab in _best_profile(notes).items():
                 if key != "gender" and key in FIELD_BY_KEY:
@@ -396,14 +384,15 @@ def fill_from_vision(values: dict[str, str], vision: str, replace: bool = False,
                 filled += 1
             out[key] = generated[key]
     notes = [note] if note else []
-    if addons.REGISTRY.post_fill_vision:
-        addons.REGISTRY.post_fill_vision(values, vision, out, replace, notes)
+    post_fill = addons.REGISTRY.llm.get("post_fill_vision")
+    if post_fill:
+        post_fill(values, vision, out, replace, notes)
     kept = sum(1 for k, _, _, _ in ALL_FIELDS if not is_default(k, values.get(k, "")))
     notes.append(f"Filled {filled} dropdown(s)" + ("" if replace or not kept else f"; kept your {kept} pick(s)") + ".")
     return out, notes
 
 
-def _validate_profiles():
+def validate_profiles():
     for _, profile in _VIBES:
         for k, lab in profile.items():
             if k in FIELD_BY_KEY:
@@ -413,4 +402,4 @@ def _validate_profiles():
             _opt(k, lab)
 
 
-_validate_profiles()
+validate_profiles()

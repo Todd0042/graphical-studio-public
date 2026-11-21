@@ -15,7 +15,7 @@
       <button type="button" class="seg-btn active" data-mode="generate">Generate</button>
       <button type="button" class="seg-btn" data-mode="compose">Compose</button>
     </div>
-    <span id="gpu-pill" class="pill" hidden></span>
+    <span id="status-pill" class="pill" hidden></span>
     <form method="post" action="/logout" class="logout"><button type="submit" class="ghost">Sign out</button></form>
   </header>
 
@@ -23,7 +23,6 @@
     <section class="panel create">
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="photo" role="tab">Photo</button>
-        <button class="tab" data-tab="video" role="tab" data-video-only hidden>Video</button>
         <button class="tab" data-tab="builder" role="tab">Prompt Builder</button>
       </nav>
 
@@ -79,52 +78,8 @@
         <p class="form-msg" aria-live="polite"></p>
       </form>
 
-      <form id="video-form" class="tabpane" data-pane="video" data-video-only hidden>
-        <label>Prompt <textarea name="prompt" rows="5" maxlength="4000" required></textarea></label>
-        <label>Negative prompt <span class="help">Things to keep out of the clip.</span>
-          <textarea name="negative" rows="2" maxlength="2000"></textarea></label>
-        <div class="grid2">
-          <label><span id="video-model-label">Video model</span> <span id="video-model-help" class="help"></span>
-            <select name="version"></select></label>
-          <label>Preset <select name="preset" data-video-preset></select></label>
-        </div>
-        <div class="attach" data-attach="start_upload" hidden>
-          <img alt="">
-          <div><strong>Start image</strong><span class="help" data-attach-label></span></div>
-          <button type="button" class="ghost" data-clear="start_upload" title="Remove start image">×</button>
-        </div>
-        <details class="advanced">
-          <summary>Advanced settings <span class="help">(the builder fills these in for you)</span></summary>
-          <div class="grid2">
-            <label>Width <input name="width" type="number" min="256" max="1280" step="16" value="768"></label>
-            <label>Height <input name="height" type="number" min="256" max="1280" step="16" value="432"></label>
-            <label>Duration (s) <span class="help">Longer clips take much longer to make.</span>
-              <input name="duration" type="number" min="0" max="6" step="0.25" value="4"></label>
-            <label>FPS <span id="video-fps-help" class="help">Frames per second.</span>
-              <input name="fps" type="number" min="8" max="24" value="16"></label>
-            <label>Steps <span id="video-steps-help" class="help">Refinement passes.</span>
-              <input name="steps" type="number" min="2" max="40" value="20"></label>
-            <label>CFG <input name="cfg" type="number" min="1" max="10" step="0.5" value="5"></label>
-            <label>Sampler <select name="sampler"></select></label>
-            <label>Scheduler <select name="scheduler"></select></label>
-          </div>
-          <label class="file">Upload your own start image <input type="file" accept="image/png,image/jpeg,image/webp" data-upload="start_upload"></label>
-          <div class="grid2">
-            <label>Seed <input name="seed" type="number" min="0" value="42026"></label>
-            <label>Output name (optional) <input name="output_name" maxlength="80"></label>
-          </div>
-          <div class="checks"><label><input type="checkbox" name="random_seed" checked> Random seed</label></div>
-        </details>
-        <button type="submit" class="primary">Queue video</button>
-        <p class="form-msg" aria-live="polite"></p>
-      </form>
-
       <div id="builder" class="tabpane" data-pane="builder" hidden>
         <div class="row builder-top">
-          <div class="seg" id="builder-target" role="group" aria-label="Building for" data-video-only hidden>
-            <button type="button" class="seg-btn active" data-target="photo">Photo</button>
-            <button type="button" class="seg-btn" data-target="video">Video</button>
-          </div>
           <label class="inline"><span id="llm-label-text">Prompt LLM</span> <span id="llm-help" class="help">Which local instruct model reconciles and fills. Red = slow on this card.</span>
             <select id="llm-select"></select></label>
         </div>
@@ -225,10 +180,6 @@
     <section class="panel gallery">
       <div class="gallery-head">
         <h2>Gallery</h2>
-        <div class="seg" data-video-only hidden>
-          <button class="seg-btn active" data-kind="photo">Photos</button>
-          <button class="seg-btn" data-kind="video">Videos</button>
-        </div>
       </div>
       <div id="media-actions" class="action-bar" hidden>
         <span class="sel-name"></span>
@@ -238,8 +189,6 @@
           <button type="button" data-act="compose-bg" data-compose-only hidden>Use as background</button>
           <button type="button" data-act="import" data-recipe-only>Import into Prompt Builder</button>
           <button type="button" data-act="photo-ref" data-photo-only data-photo-ref-only>Send to photo reference</button>
-          <button type="button" data-act="video-ref" data-photo-only data-video-only hidden>Send to video reference</button>
-          <button type="button" data-act="twin" data-photo-only hidden></button>
           <a class="button ghost" data-act="download">Download</a>
           <button type="button" data-act="delete" class="ghost danger">Delete</button>
         </div>
@@ -253,8 +202,6 @@
     <div class="row viewer-actions">
       <button type="button" data-act="import" data-recipe-only>Import into Prompt Builder</button>
       <button type="button" data-act="photo-ref" data-photo-only data-photo-ref-only>Send to photo reference</button>
-      <button type="button" data-act="video-ref" data-photo-only data-video-only hidden>Send to video reference</button>
-      <button type="button" data-act="pair" data-photo-only hidden></button>
       <a class="button" data-act="download">Download</a>
       <button type="button" data-act="delete" class="ghost danger">Delete</button>
       <button type="button" id="viewer-close" class="ghost">Close</button>
@@ -271,5 +218,6 @@
   <script src="/static/app.js?v=__V__"></script>
   <script src="/static/colorpicker.js?v=__V__"></script>
   <script src="/static/compose.js?v=__V__"></script>
+  <!-- __EXTRA_SCRIPTS__ -->
 </body>
 </html>

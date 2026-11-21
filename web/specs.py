@@ -1,41 +1,40 @@
 """Validate web requests into job plans, reusing the desktop app's own builders.
 
 Two stages: prepare_* (at submit) validate everything into a JSON-safe plan; the job then runs
-inside its GPU turn (finalize):
-  photo / video  render the prompt as typed, after the same Python cleanup as the desktop
-                 Generate button (no LLM)
-  reconcile      Prompt Builder send: the local LLM reconciles the chosen dropdowns against the
-                 custom-text vision (wan_reconcile.py) and picks model + settings
+inside its execution turn (finalize):
+  photo      render the prompt as typed, after the same Python cleanup as the desktop Generate button
+  reconcile  Prompt Builder send: the local LLM reconciles the chosen dropdowns against the
+             custom-text vision (studio_reconcile.py) and picks model + settings
 Everything a browser sends is checked against allow-lists and numeric bounds before it
 reaches argv; commands are argv lists (never a shell string).
 """
 
 from __future__ import annotations
 
-import os
 import random
 import sys
 from typing import Any
 
 import addons
-from wan_prompt_catalog import FIELD_BY_KEY
-from wan_models import default_prompt_llm, prompt_llms, resolve_prompt_llm
-from wan_reconcile import reconcile_for_target
-from wan_vibe import fill_from_vision
+from studio_prompt_catalog import FIELD_BY_KEY
+from studio_models import default_prompt_llm, prompt_llms, resolve_prompt_llm
+from studio_reconcile import reconcile_for_target
+from studio_vibe import fill_from_vision
 
-from wan_profiles import generate_random_person_variation
-from wan_rectifier import rectify_builder_fields, rectify_freeform_prompt
-from wan_studio_helpers import (
-    CAUTION_MODELS, CORE_PHOTO_MODEL_SETTINGS, DEFAULT_NEGATIVE, I2V_VERSIONS, MODEL_OPTIONS,
-    PHOTO_DEFAULT_NEGATIVE, PHOTO_PRESETS, PRESETS, VIDEO_MODEL_SETTINGS,
-    build_cli_command, build_photo_cli_command, duration_to_frames, get_photo_model_options,
-    list_photo_loras, slugify_photo_prompt, slugify_prompt,
+from studio_profiles import generate_random_person_variation
+from studio_rectifier import rectify_builder_fields, rectify_freeform_prompt
+from studio_helpers import (
+    CORE_PHOTO_MODEL_SETTINGS,
+    PHOTO_DEFAULT_NEGATIVE,
+    PHOTO_PRESETS,
+    build_photo_cli_command,
+    get_photo_model_options,
+    list_photo_loras,
+    slugify_photo_prompt,
 )
 
 PHOTO_SAMPLERS = ("dpmpp_2m", "euler", "uni_pc")
 PHOTO_SCHEDULERS = ("karras", "simple", "normal")
-VIDEO_SAMPLERS = ("uni_pc", "euler", "dpmpp_2m")
-VIDEO_SCHEDULERS = ("simple", "normal", "karras")
 REF_MODES = ("none", "person", "background")
 MAX_PROMPT = 4000
 MAX_NEGATIVE = 2000
@@ -88,7 +87,7 @@ def _seed(data: dict) -> int:
 
 
 def photo_options() -> dict[str, Any]:
-    if addons.REGISTRY.photo_model_registry:
+    if addons.REGISTRY.models.get("photo_registry"):
         return {
             "models": [{"key": k, "label": label} for k, label in get_photo_model_options()],
             "presets": [{"label": label, "width": w, "height": h} for label, (w, h) in PHOTO_PRESETS.items()],
@@ -109,21 +108,10 @@ def photo_options() -> dict[str, Any]:
     }
 
 
-def video_options() -> dict[str, Any]:
-    if not addons.REGISTRY.video_enabled:
-        raise SpecError("Video generation is not available in the public edition")
-    return {
-        "models": [{"key": k, "label": label, "caution": k in CAUTION_MODELS, "settings": VIDEO_MODEL_SETTINGS[k]}
-                   for k, label in MODEL_OPTIONS],
-        "presets": [{"label": label, "width": w, "height": h, "duration": d, "fps": f} for label, (w, h, d, f) in PRESETS.items()],
-        "samplers": VIDEO_SAMPLERS, "schedulers": VIDEO_SCHEDULERS, "default_negative": DEFAULT_NEGATIVE,
-    }
-
-
 def prepare_photo(data: dict, resolve_upload) -> dict[str, Any]:
     models = [k for k, _ in get_photo_model_options()]
-    has_ckpt = bool(addons.REGISTRY.photo_model_registry)
-    default_m = addons.REGISTRY.default_photo_model or "flux2_klein"
+    has_ckpt = bool(addons.REGISTRY.models.get("photo_registry"))
+    default_m = addons.REGISTRY.models.get("default_photo_model") or "flux2_klein"
     model = _choice(data, "model", models, default_m)
     base_prompt = _text(data, "prompt", MAX_PROMPT)
     if not base_prompt:
@@ -145,7 +133,7 @@ def prepare_photo(data: dict, resolve_upload) -> dict[str, Any]:
         samplers, schedulers, min_steps = PHOTO_SAMPLERS, PHOTO_SCHEDULERS, 5
     else:
         if data.get("lora"):
-            raise SpecError("Custom LoRAs are not enabled in the public edition")
+            raise SpecError("Custom LoRAs are not supported for the selected models")
         lora = ""
         ref_mode = _choice(data, "ref_mode", ("none",), "none")
         ref_path = ""
@@ -182,45 +170,14 @@ def prepare_photo(data: dict, resolve_upload) -> dict[str, Any]:
     }
 
 
-def prepare_video(data: dict, resolve_upload) -> dict[str, Any]:
-    if not addons.REGISTRY.video_enabled:
-        raise SpecError("Video generation is not available in the public edition")
-    version = _choice(data, "version", [k for k, _ in MODEL_OPTIONS], "2.2")
-    base_prompt = _text(data, "prompt", MAX_PROMPT)
-    if not base_prompt:
-        raise SpecError("Prompt is required")
-    negative = _text(data, "negative", MAX_NEGATIVE, DEFAULT_NEGATIVE) or DEFAULT_NEGATIVE
-    width, height = _dims(data, 256, 1280, 16, (768, 432))
-    fps = _num(data, "fps", 16, 8, 24, as_int=True)
-    duration = _num(data, "duration", 4.0, 0.0, 6.0)
-    start_image = resolve_upload(str(data.get("start_upload") or ""))
-    if start_image and version not in I2V_VERSIONS:
-        raise SpecError(addons.REGISTRY.video_ui_strings.get("video_start_i2v_error", "Selected model does not support Start Image (I2V)"))
-
-    frames, actual_sec = duration_to_frames(duration, fps)
-    cfg = {
-        "version": version, "prompt": base_prompt, "negative": negative,
-        "width": width, "height": height, "duration_sec": duration, "fps": fps,
-        "steps": _num(data, "steps", VIDEO_MODEL_SETTINGS[version]["steps"], 2, 40, as_int=True),
-        "cfg": _num(data, "cfg", 5.0, 1.0, 10.0),
-        "seed": _seed(data),
-        "sampler": _choice(data, "sampler", VIDEO_SAMPLERS, "uni_pc"),
-        "scheduler": _choice(data, "scheduler", VIDEO_SCHEDULERS, "simple"),
-        "image": start_image,
-    }
-    cfg["output_name"] = _text(data, "output_name", 80)
-    settings = {k: cfg[k] for k in ("version", "width", "height", "fps", "steps", "cfg", "seed", "sampler", "scheduler")}
-    settings.update(frames=frames, seconds=actual_sec, start_image=bool(start_image))
-    return {
-        "kind": "video", "prompt": base_prompt, "notes": [], "settings": settings, "cfg": cfg,
-        "library": _library_entry(data, "video", base_prompt, reference=start_image),
-    }
+def _valid_targets() -> tuple[str, ...]:
+    extra = tuple(addons.REGISTRY.web.get("builder_targets") or ())
+    return ("photo", *extra)
 
 
 def prepare_reconcile(data: dict) -> dict[str, Any]:
-    """Prompt Builder send: the creator's dropdown choices + custom-text vision, for photo (or video)."""
-    targets = ("photo", "video") if addons.REGISTRY.video_enabled else ("photo",)
-    target = _choice(data, "target", targets, "photo")
+    """Prompt Builder send: the creator's dropdown choices + custom-text vision."""
+    target = _choice(data, "target", _valid_targets(), "photo")
     vision = _text(data, "vision", 2000)
     values = _builder_values(data.get("values"))
     if not values and not vision:
@@ -233,8 +190,7 @@ def prepare_reconcile(data: dict) -> dict[str, Any]:
 
 
 def prepare_fill(data: dict) -> dict[str, Any]:
-    """Fill dropdowns from my vision: the LLM picks dropdown values from the vision text.
-    Only empty dropdowns unless replace is set; the creator reviews them afterwards."""
+    """Fill dropdowns from my vision: the LLM picks dropdown values from the vision text."""
     vision = _text(data, "vision", 2000)
     if not vision:
         raise SpecError("Write your vision first")
@@ -252,10 +208,9 @@ def _llm_choice(data: dict) -> str:
 
 
 def turn_needs(plan: dict[str, Any]) -> str:
-    """What the GPU turn's first step needs: the chosen LLM loaded (Ollama), or the whole card.
-    Resolves the LLM now (falling back to an installed one) and records it in the plan."""
-    pp = addons.pair_provider()
-    if plan["kind"] in ("reconcile", "fill") or (pp and plan["kind"] == pp.kind):
+    """What the session's first step needs: the chosen LLM loaded (Ollama), or exclusive device access."""
+    llm_kinds = {"reconcile", "fill", *tuple(addons.REGISTRY.web.get("llm_job_kinds") or ())}
+    if plan["kind"] in llm_kinds:
         k = addons.llm_ui_strings()["result_model_key"]
         model, why = resolve_prompt_llm(plan.get(k) or plan.get("llm"))
         plan[f"{k}_resolved"] = model or ""
@@ -267,12 +222,11 @@ def turn_needs(plan: dict[str, Any]) -> str:
 
 def builder_preview(data: dict) -> dict[str, Any]:
     """Live preview: the prompt the dropdowns (+ vision) make right now, with the Python conflict notes."""
-    targets = ("photo", "video") if addons.REGISTRY.video_enabled else ("photo",)
-    target = _choice(data, "target", targets, "photo")
+    target = _choice(data, "target", _valid_targets(), "photo")
     vision = _text(data, "vision", 2000)
     values = _builder_values(data.get("values"))
     extras = [("extra_notes", vision)] if vision else None
-    prompt, notes = rectify_builder_fields(values, extra_clauses=extras, include_motion=(target == "video"))
+    prompt, notes = rectify_builder_fields(values, extra_clauses=extras, include_motion=(target != "photo"))
     return {"prompt": prompt, "notes": notes}
 
 
@@ -287,8 +241,7 @@ def _builder_values(raw: Any) -> dict[str, str]:
 
 
 def _library_entry(data: dict, target: str, prompt: str, variation: str = "", reference: str = "") -> dict[str, Any]:
-    """What the library stores for this job: the builder state behind the prompt (if the form was filled
-    by a Prompt Builder send), so "Import into Prompt Builder" can bring it all back later."""
+    """What the library stores for this job."""
     raw = data.get("builder") if isinstance(data.get("builder"), dict) else {}
     values = _builder_values(raw.get("values"))
     vision = _text(raw, "vision", 2000)
@@ -305,11 +258,7 @@ def _library_entry(data: dict, target: str, prompt: str, variation: str = "", re
 
 
 def finalize(plan: dict[str, Any]) -> dict[str, Any]:
-    """Inside the GPU turn: produce what the job needs.
-
-    reconcile -> {"prompt", "notes", ..., model/version + settings}
-    photo/video -> {"effective_prompt", "notes", "cmd", "output", "cfg"}
-    """
+    """Inside the execution turn: produce what the job needs."""
     kind = plan["kind"]
     k = addons.llm_ui_strings()["result_model_key"]
     resolved = plan.get(f"{k}_resolved") or plan.get("llm_resolved") or None
@@ -320,20 +269,17 @@ def finalize(plan: dict[str, Any]) -> dict[str, Any]:
         values, notes = fill_from_vision(plan["values"], plan["vision"], replace=plan["replace"],
                                          use_llm=bool(resolved), model=resolved)
         return {"values": values, "notes": notes}
-    pp = addons.pair_provider()
-    if pp and kind == pp.kind:
-        return pp.finalize_pair(plan)
+    finalizer = (addons.REGISTRY.web.get("job_finalizers") or {}).get(kind)
+    if finalizer:
+        return finalizer(plan)
+    if kind != "photo":
+        raise SpecError(f"Unsupported job kind: {kind}")
     cfg = dict(plan["cfg"])
-    # Same Python cleanup as the desktop Generate button; otherwise rendered as typed.
     prompt, rect_notes = rectify_freeform_prompt(cfg["prompt"], use_extra_llm=False)
     cfg["prompt"] = prompt or cfg["prompt"]
     notes = [f"Conflict rectifier: {n}" for n in rect_notes]
-    if kind == "photo":
-        return {"effective_prompt": cfg["prompt"], "notes": notes, "cmd": build_photo_cli_command(cfg),
-                "output": cfg["output"], "cfg": cfg}
-    cfg["output"] = slugify_prompt(cfg["prompt"], cfg.pop("output_name", ""), cfg["version"])
-    return {"effective_prompt": cfg["prompt"], "notes": notes, "cmd": build_cli_command(cfg), "output": cfg["output"], "cfg": cfg}
+    return {"effective_prompt": cfg["prompt"], "notes": notes, "cmd": build_photo_cli_command(cfg),
+            "output": cfg["output"], "cfg": cfg}
 
 
-if addons.REGISTRY.attach_specs_compat:
-    addons.REGISTRY.attach_specs_compat(sys.modules[__name__])
+addons.attach_compat("web.specs", sys.modules[__name__])

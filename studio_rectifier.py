@@ -37,11 +37,8 @@ DOMAIN_WEIGHTS = {
     "build": 72,
     "age": 70,
     "expression": 68,
-    "motion": 66,
-    "camera_move": 64,
-    "physics": 62,
     "symmetry": 60,
-    "rating": 55,
+    **addons.REGISTRY.catalog.get("extra_domain_weights", {}),
 }
 
 # Semantic conflict groups: each group maps sub-intent -> regex patterns that express that sub-intent.
@@ -49,24 +46,20 @@ DOMAIN_WEIGHTS = {
 # are pruned from lower-priority/non-owner clauses.
 _BASE_CONFLICT_GROUPS = {
     "clothing_state": {
-        "owners": ("attire", "rating"),
+        "owners": ("attire",),
         "modes": {
             "clothed": [
-                r"\bcrop(?:ped)?\s+(?:ribbed\s+)?(?:baby-tee|top|tank|hoodie|cardigan|tee|sweater)\b",
-                r"\bbaby-tee\b", r"\bhoodie\b", r"\bflannel\b", r"\bsweater\b",
+                r"\bhoodie\b", r"\bflannel\b", r"\bsweater\b",
                 r"\bcardigan\b", r"\bt-?shirt\b", r"\bcrew-neck tee\b", r"\bgraphic tee\b",
                 r"\bblazer\b", r"\bsuit\b", r"\bbutton-down\b", r"\boxford\b",
-                r"\b(?:slip |sun)?dress\b", r"\bgown\b", r"\bmini skirt\b", r"\bskirt\b",
+                r"\b(?:sun)?dress\b", r"\bgown\b", r"\bskirt\b",
                 r"\b(?:baggy |dark |blue |denim |high-waisted )?jeans\b",
-                r"\bjoggers\b", r"\bleggings\b", r"\brunning shorts\b", r"\bshorts\b",
+                r"\bjoggers\b", r"\bleggings\b", r"\bshorts\b",
                 r"\bchinos\b", r"\bpants\b", r"\btrousers\b",
                 r"\bmoto jacket\b", r"\bbiker jacket\b", r"\btrench coat\b", r"\bcoat\b",
                 r"\bcloak\b", r"\btechwear\b", r"\bleather armor\b", r"\barmor\b",
                 r"\bkimono\b", r"\buniform\b",
                 r"\bspacesuit\b", r"\bbodysuit\b", r"\btunic\b", r"\bblouse\b", r"\bshirt\b",
-                r"\bcamisole\b", r"\bcami\b", r"\bsports bra\b", r"\bthigh socks\b",
-                r"\btasteful modest presentation\b", r"\bmodest\b",
-                r"\brating_safe\b", r"\bfamily-friendly\b",
             ],
         },
     },
@@ -128,7 +121,7 @@ _BASE_CONFLICT_GROUPS = {
             ],
             "night_dark": [
                 r"\bneon rainy night\b", r"\bmoonlit\b", r"\bnight mist\b", r"\blate-night\b",
-                r"\bmidnight\b", r"\bnight\b", r"\bdim romantic\b", r"\bcandlelight\b",
+                r"\bmidnight\b", r"\bnight\b", r"\bcandlelight\b",
             ],
         },
     },
@@ -137,18 +130,17 @@ _BASE_CONFLICT_GROUPS = {
         "modes": {
             "empty": [r"\bno humans\b", r"\bempty atmospheric scenery\b", r"\bempty scenery\b", r"\bwithout people\b", r"\bno people\b"],
             "female": [
-                r"\b1woman\b", r"\b2women\b", r"\bfemale\b", r"\bwoman\b", r"\bgirl\b", r"\blady\b",
-                r"\bgirl-next-door\b", r"\bfeminine curves\b", r"\bhourglass\b", r"\bheroine\b",
+                r"\bfemale\b", r"\bwoman\b", r"\bgirl\b", r"\blady\b", r"\bheroine\b",
             ],
             "male": [
-                r"\b1man\b", r"\b2men\b", r"\bmale\b", r"\bman\b", r"\bguy\b", r"\bboy\b",
+                r"\bmale\b", r"\bman\b", r"\bguy\b", r"\bboy\b",
                 r"\bbearded\b", r"\bhandsome\b", r"\bbroad-chested\b", r"\bwarrior protagonist\b",
             ],
-            "mixed": [r"\b1man and 1woman\b", r"\bcouple\b", r"\btwo young adults\b", r"\bgroup of friends\b"],
+            "mixed": [r"\bcouple\b", r"\btwo young adults\b", r"\bgroup of friends\b"],
         },
     },
     "posture_state": {
-        "owners": ("pose", "motion"),
+        "owners": ("pose",),
         "modes": {
             "standing": [r"\bstanding\b", r"\bleaning against wall\b", r"\bupright\b"],
             "sitting": [r"\bsitting\b", r"\bseated\b", r"\bcross-legged\b"],
@@ -159,11 +151,8 @@ _BASE_CONFLICT_GROUPS = {
     },
 }
 
-CONFLICT_GROUPS = (
-    addons.REGISTRY.extend_conflict_groups(_BASE_CONFLICT_GROUPS)
-    if addons.REGISTRY.extend_conflict_groups
-    else _BASE_CONFLICT_GROUPS
-)
+_extend_cg = addons.REGISTRY.catalog.get("extend_conflict_groups")
+CONFLICT_GROUPS = _extend_cg(_BASE_CONFLICT_GROUPS) if _extend_cg else _BASE_CONFLICT_GROUPS
 
 
 def _lead_focus(raw_value: str) -> str:
@@ -216,7 +205,7 @@ def rectify_builder_fields(
     include_motion: bool = True,
 ) -> tuple[str, list[str]]:
     """Rectify conflicts across structured Builder dropdowns + optional extra clauses."""
-    from wan_prompt_catalog import ALL_FIELDS, SCENE_ATTIRE_FIELDS, PERSON_FIELDS, THEME_FIELDS, extract_clause
+    from studio_prompt_catalog import ALL_FIELDS, SCENE_ATTIRE_FIELDS, PERSON_FIELDS, THEME_FIELDS, extract_clause
 
     ordered_fields = ALL_FIELDS if include_motion else (THEME_FIELDS + PERSON_FIELDS + SCENE_ATTIRE_FIELDS)
     entries: list[dict] = []
@@ -251,8 +240,8 @@ def rectify_builder_fields(
     notes: list[str] = []
     by_key = {e["key"]: e for e in entries}
 
-    # Special rule 1: Empty Environment ("no humans") removes all person/attire/pose/expression/motion boxes
-    # UNLESS Custom Text (extra_notes) explicitly introduces a person/character!
+    # Empty Environment ("no humans") removes all person/attire/pose/expression/motion boxes
+    # UNLESS Custom Text (extra_notes) explicitly introduces a person/character.
     custom_ent = by_key.get("extra_notes")
     custom_sex = _classify_mode(custom_ent["clause"], CONFLICT_GROUPS["subject_sex"]["modes"], custom_ent["lead"]) if custom_ent else None
     g_entry = by_key.get("gender")
@@ -263,7 +252,7 @@ def rectify_builder_fields(
             entries = [e for e in entries if e["key"] not in person_keys]
             notes.append(f"Subject (Empty Environment) dropped person fields: {', '.join(dropped)}")
 
-    # Apply every semantic conflict group: Custom Text (extra_notes) ALWAYS checks first as absolute truth,
+    # Apply every semantic conflict group: Custom Text (extra_notes) checks first as absolute truth,
     # followed by the group's authoritative dropdown owners.
     for group_name, spec in CONFLICT_GROUPS.items():
         owners = ("extra_notes",) + tuple(spec["owners"])
@@ -311,7 +300,6 @@ def rectify_builder_fields(
                 win_head = "Custom Text" if winner["key"] == "extra_notes" else (winner["raw"].split(":", 1)[0].strip() if ":" in winner["raw"] else winner["label"])
                 notes.append(f"{winner['label']} ({win_head}) overrode {ent['label']}: removed '{'; '.join(removed[:2])}'")
 
-    # Final deduplication across comma-separated tags (preserve order, keep first occurrence)
     seen: set[str] = set()
     final_tags: list[str] = []
     for ent in entries:
@@ -357,7 +345,7 @@ def rectify_freeform_prompt(
 
     hints = dict(priority_hints or {})
     if not hints:
-        from wan_prompt_catalog import ascertain_fields_from_prompt
+        from studio_prompt_catalog import ascertain_fields_from_prompt
         hints = ascertain_fields_from_prompt(text)
     if custom:
         hints["extra_notes"] = custom
@@ -386,7 +374,7 @@ def rectify_freeform_prompt(
         else:
             bad_pats = [p for m_name, pats in modes.items() if m_name != winner_mode for p in pats]
 
-        from wan_prompt_catalog import extract_clause
+        from studio_prompt_catalog import extract_clause
         protected = custom.lower() if winner_key == "extra_notes" else extract_clause(winner_raw).lower()
         custom_low = custom.lower()
         parts = [p.strip() for p in cleaned.split(",") if p.strip()]
@@ -443,8 +431,9 @@ def _split_secondary_tags(prompt_text: str, custom_text: str) -> str:
 
 
 def _build_llm_messages(prompt_text: str, priority_hints: dict[str, str], custom_text: str = "") -> tuple[str, str]:
-    if addons.REGISTRY.rectifier_llm_messages:
-        return addons.REGISTRY.rectifier_llm_messages(prompt_text, priority_hints, custom_text)
+    msg_fn = addons.REGISTRY.llm.get("rectifier_messages")
+    if msg_fn:
+        return msg_fn(prompt_text, priority_hints, custom_text)
     custom = (custom_text or priority_hints.get("extra_notes") or "").strip()
     if custom:
         secondary = _split_secondary_tags(prompt_text, custom)
@@ -460,7 +449,7 @@ def _build_llm_messages(prompt_text: str, priority_hints: dict[str, str], custom
             "3. Output ONLY the final clean comma-separated prompt on a single line. No explanations, labels, or quotes.\n\n"
             "Example:\n"
             "ABSOLUTE TRUTH: an old bearded wizard in dark purple robes inside a candlelit library\n"
-            "SECONDARY TAGS: photorealistic, 85mm lens, 1woman, blonde hair, bright blue eyes, pink sundress, sunny beach, daylight\n"
+            "SECONDARY TAGS: photorealistic, 85mm lens, young woman, blonde hair, bright blue eyes, floral sundress, sunny beach, daylight\n"
             "OUTPUT: photorealistic, 85mm lens, an old bearded wizard in dark purple robes inside a candlelit library, warm dim candlelight"
         )
         user_msg = (
@@ -557,11 +546,12 @@ def _try_ollama_instruct(sys_msg: str, user_msg: str, *, max_tokens: int = 260, 
 
 def run_prompt_llm_checked(sys_msg: str, user_msg: str, model: str | None = None, **kwargs) -> tuple[str | None, str, str, bool]:
     """Run the active prompt LLM. Returns (output, note, model_used, refused)."""
-    if addons.REGISTRY.run_llm_override:
-        out, note, used = addons.REGISTRY.run_llm_override(sys_msg, user_msg, model=model, **kwargs)
+    run_override = addons.REGISTRY.llm.get("run_override")
+    if run_override:
+        out, note, used = run_override(sys_msg, user_msg, model=model, **kwargs)
         return out, note, used, False
 
-    from wan_models import resolve_prompt_llm
+    from studio_models import resolve_prompt_llm
 
     use, why = resolve_prompt_llm(model)
     if not use:
@@ -585,5 +575,4 @@ def _try_llm_polish(prompt_text: str, priority_hints: dict[str, str], custom_tex
     return out, note
 
 
-if addons.REGISTRY.attach_rectifier_compat:
-    addons.REGISTRY.attach_rectifier_compat(sys.modules[__name__])
+addons.attach_compat("studio_rectifier", sys.modules[__name__])

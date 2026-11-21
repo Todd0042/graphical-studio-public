@@ -20,8 +20,8 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-import wan_library
-from wan_studio_helpers import OUTPUTS_DIR, PHOTOS_DIR, ROOT_DIR, VENV_PYTHON
+import studio_library
+from studio_helpers import OUTPUTS_DIR, PHOTOS_DIR, ROOT_DIR, VENV_PYTHON
 
 CUTOUT_SCRIPT = os.path.join(ROOT_DIR, "cutout.py")
 CUTOUT_MODELS = ("general", "anime", "portrait")
@@ -133,7 +133,7 @@ def register_compose_routes(app: FastAPI, uploads_dir: Path, resolve_upload: Cal
                 os.makedirs(PHOTOS_DIR, exist_ok=True)
                 path = Path(PHOTOS_DIR) / f"compose_{time.strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(2)}.png"
                 img.convert("RGBA" if "A" in img.getbands() else "RGB").save(path, "PNG")
-            wan_library.record(str(path), source="compose", settings={"compose": layout})
+            studio_library.record(str(path), source="compose", settings={"compose": layout})
             return path
 
         try:

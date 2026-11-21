@@ -59,7 +59,7 @@ def save_template(name: str, values: dict, notes: str = "", auto: bool = False, 
 
 
 def auto_save_template(kind: str, values: dict, notes: str = "", path: str = TEMPLATES_PATH) -> str | None:
-    """Auto-save the builder state on Send to Video / Send to Photos."""
+    """Auto-save the builder state when sending a generated prompt."""
     name = f"{AUTO_PREFIX} · {kind} · {time.strftime('%Y-%m-%d %H:%M:%S')}"
     return save_template(name, values, notes, auto=True, path=path)
 

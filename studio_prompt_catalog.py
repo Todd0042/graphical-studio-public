@@ -5,10 +5,6 @@ import re
 import addons
 
 THEME_FIELDS = [
-    ("rating", "Rating / Content", "rating", [
-        "None / Standard",
-        "Safe / Clean (SFW): rating_safe, clean family-friendly tone",
-    ]),
     ("style", "Visual Style", "style", [
         "None / Custom",
         # Photoreal cluster
@@ -70,7 +66,6 @@ THEME_FIELDS = [
         "Cool Silver Moonlight: pale silvery nighttime moonlight with soft cool shadows",
         "Mixed Fluorescent Night Glow: stylized cool overhead fluorescent mixed with warm practical light",
         # Indoor warm
-        "Dim Romantic Candlelight: low-key warm amber flickering glow with deep cozy shadows",
         "Warm Hearth Ember Glow: warm flickering orange-amber low-angle firelight glow",
         # Indoor studio
         "Soft Front Ring-Light + Warm Fill: balanced front ring-light key with soft warm ambient fill",
@@ -86,12 +81,12 @@ THEME_FIELDS = [
         "None / Custom",
         # Wide to tight
         "Wide Environmental Framing: wide-angle framing placing subject within a broad view of the setting",
-        "Full Body (Head-to-Toe, Anti-Zoom): full body, head-to-toe wide framing showing full figure",
-        "Three-Quarter (Knees-Up, Anti-Zoom): three-quarter knees-up framing showing silhouette and proportions",
-        "Cowboy Shot (Thighs-Up, Anti-Zoom): cowboy shot, thighs-up framing, wide enough to show torso and hips",
-        "Upper Body (Waist-Up, Anti-Zoom): upper body, waist-up medium shot centered on subject",
+        "Full Body (Head-to-Toe): full body, head-to-toe wide framing showing full figure",
+        "Three-Quarter (Knees-Up): three-quarter knees-up framing showing silhouette and proportions",
+        "Cowboy Shot (Thighs-Up): cowboy shot, thighs-up framing, wide enough to show torso and hips",
+        "Upper Body (Waist-Up): upper body, waist-up medium shot centered on subject",
         "Medium Close-Up (Chest-Up): medium close-up chest-up eye-level framing, shallow background blur",
-        "Extreme Close-Up Face: tight intimate close-up framing face and collarbones, creamy background bokeh",
+        "Close-Up Portrait: close-up portrait framing face and shoulders, creamy background bokeh",
         # Special angles
         "High-Angle Perspective: slightly elevated high camera angle tilted gently downward",
         "Low-Angle Power Perspective: low camera angle tilted slightly upward for bold presence",
@@ -116,18 +111,18 @@ PERSON_FIELDS = [
     ("gender", "Subject / Gender", "gender", [
         "None / Custom",
         # Solo
-        "Solo Woman: 1woman, adult female subject, centered",
-        "Solo Man: 1man, adult male subject, centered",
+        "Solo Woman: solo adult female subject, centered",
+        "Solo Man: solo adult male subject, centered",
         # Duo / Couple
-        "Romantic Couple: 1man and 1woman together, balanced two-shot",
-        "Two Women Together: 2women together, balanced two-shot",
-        "Two Men Together: 2men together, balanced two-shot",
+        "Romantic Couple: adult man and woman together, balanced two-shot",
+        "Two Women Together: two adult women together, balanced two-shot",
+        "Two Men Together: two adult men together, balanced two-shot",
         "Two Friends Together: two young adults together, candid interaction",
         # Group
         "Small Group: small group of people in natural candid grouping",
         # Fantasy / Sci-Fi
-        "Fantasy Adventurer Woman: 1woman, adult female fantasy character",
-        "Fantasy Adventurer Man: 1man, adult male fantasy character",
+        "Fantasy Adventurer Woman: solo adult female fantasy adventurer character",
+        "Fantasy Adventurer Man: solo adult male fantasy adventurer character",
         "Sci-Fi Mercenary: solo adult futuristic mercenary character",
         # Empty
         "Empty Environment (No People): no humans, empty scenery without people",
@@ -139,7 +134,7 @@ PERSON_FIELDS = [
         "Heart-Shaped Youthful: delicate heart-shaped face, softly contoured cheeks, tapered chin",
         "Everyday Natural Pretty: pleasant approachable balanced facial features, natural everyday appeal",
         # Harmonious / high symmetry
-        "High Symmetry (Classic): very attractive, harmonious symmetrical face, sculpted cheekbones, balanced proportions",
+        "High Symmetry (Classic): attractive, harmonious symmetrical face, sculpted cheekbones, balanced proportions",
         "Top Model Sculpted: striking photogenic facial symmetry, defined jawline, high cheekbones",
         # Striking / editorial
         "Angular High-Fashion: sharp editorial cheekbones, narrow defined jawline, striking bone structure",
@@ -170,10 +165,7 @@ PERSON_FIELDS = [
         # Athletic / fit
         "Compact Nimble Athletic: compact toned dancer physique, agile frame",
         "Toned Fitness / Core: visibly toned core and shoulders, sculpted lean fitness physique",
-        # Curvy
-        "Fit Curvy / Hourglass: fit shapely hourglass physique, balanced curves",
-        "Voluptuous / Full-Figured: lush curvy full-figured proportions, soft silhouette",
-        # Average / heavy
+        # Average / broad
         "Realistic Average Build: natural everyday medium build",
         "Muscular Broad-Shouldered: athletic muscular build, broad shoulders",
         "Heavy Broad Powerlifter: solid powerful broad-chested physique",
@@ -226,7 +218,7 @@ PERSON_FIELDS = [
     ]),
     ("eyes", "Eye Color & Shape", "eyes", [
         "None / Custom",
-        # ROYGBIV order: amber/orange → green → blue → violet → brown → special/shape
+        # ROYGBIV order: amber/orange -> green -> blue -> violet -> brown -> special/shape
         "Honey Amber: striking light honey-amber eyes",
         "Hazel (Green-Gold Flecks): expressive hazel eyes with warm golden-green flecks",
         "Emerald Green: vivid emerald green eyes",
@@ -284,23 +276,20 @@ SCENE_ATTIRE_FIELDS = [
         "None / Custom",
         # Casual daily
         "Fitted White Tee & Blue Jeans: crisp fitted white crew-neck t-shirt and relaxed blue denim jeans",
-        "Oversized Graphic Tee & Cargos: oversized vintage graphic t-shirt paired with relaxed cargo pants or bike shorts",
-        "Ribbed Crop Top & Baggy Jeans: fitted cropped ribbed baby-tee showing bare midriff, relaxed low-rise blue denim jeans",
-        "Cropped Tank & Open Flannel: fitted cropped ribbed tank top under an unbuttoned plaid flannel shirt",
-        "Cropped Cardigan & High-Waist Jeans: buttoned knit cropped cardigan showing hint of midriff, fitted high-waisted blue jeans",
-        "Off-Shoulder Crop Top & Mini Skirt: fitted off-the-shoulder knit crop top exposing collarbones and midriff, pleated mini skirt",
-        "Cropped Zip Hoodie & Joggers: cropped zip-up athletic hoodie over fitted ribbed tank showing midriff, high-waisted joggers",
-        "Oversized Off-Shoulder Sweater: chunky knit oversized sweater slipping off one shoulder with ribbed thigh socks",
+        "Oversized Graphic Tee & Cargos: oversized vintage graphic t-shirt paired with relaxed cargo pants",
+        "Layered Tank & Open Flannel: casual ribbed tank top worn under an unbuttoned plaid flannel shirt",
+        "Buttoned Cardigan & High-Waist Jeans: buttoned knit cardigan paired with fitted high-waisted blue jeans",
+        "Cozy Knit Pullover Sweater: soft oversized chunky-knit pullover sweater with relaxed trousers",
+        "Zip Athletic Hoodie & Joggers: zip-up athletic hoodie paired with comfortable tapered joggers",
         # Athletic
-        "Athleisure Crop Tank & Leggings: sleek cropped halter athletic tank top and high-waisted sculpted leggings",
-        "Sports Bra & Running Shorts: matching fitted athletic sports bra and short compression running shorts",
+        "Athletic Tank & Leggings: breathable athletic racerback tank top and high-waisted performance leggings",
         # Outerwear
-        "Leather Moto Jacket & Dark Jeans: fitted black leather biker jacket layered over cropped white tee and dark jeans",
+        "Leather Moto Jacket & Dark Jeans: fitted black leather biker jacket layered over white tee and dark jeans",
         # Dresses
-        "Floral Summer Sundress: lightweight breezy floral sundress with delicate tie straps",
-        "Satin Evening Slip Dress: sleek satin evening slip dress with delicate spaghetti straps",
+        "Floral Summer Sundress: lightweight breezy floral sundress with wide shoulder straps",
+        "Tailored Formal Evening Dress: elegant tailored floor-length evening dress with classic neckline",
         # Professional / formal
-        "Tailored Executive Blazer Suit: tailored charcoal blazer over a silk camisole and fitted trousers",
+        "Tailored Executive Blazer Suit: tailored charcoal blazer over a crisp tailored blouse and fitted trousers",
         "Open-Collar Button-Down & Chinos: tailored open-collar Oxford button-down shirt with rolled sleeves and dark chinos",
         # Fantasy / special
         "Fantasy Leather RPG Armor: detailed studded fantasy adventurer leather armor, pauldrons, cloak clasp, belt pouches",
@@ -312,26 +301,24 @@ SCENE_ATTIRE_FIELDS = [
         "Standing Relaxed (Hip Shift): standing naturally, weight shifted casually to one hip",
         "Standing Tall Confident: standing upright with poised shoulders and confident stance",
         "Arms Crossed Stance: standing with arms lightly crossed across torso",
-        "Leaning Back / Angled Relaxed: leaning back casually with one hand resting near hip",
+        "Leaning Back / Angled Relaxed: leaning back casually with one hand resting near side",
         "Leaning Forward Slightly: torso angled slightly forward in an engaging open posture",
         # Sitting
         "Seated Upright Relaxed: seated upright with relaxed shoulders and natural posture",
         "Seated Cross-Legged: sitting cross-legged in a comfortable open posture",
-        "Seated Lounging Back: seated leaning back comfortably with legs relaxed",
+        "Seated Lounging Back: seated leaning back comfortably",
         # Special / dynamic
         "One Hand Brushing Hair: lifting one hand casually to tuck or brush hair behind ear",
         "Looking Back Over Shoulder: body angled away while turning head back over shoulder",
         "Stretching Arms Overhead: raising arms gracefully overhead in a relaxed stretch",
         "Mid-Stride Walking Forward: stepping smoothly forward in a natural mid-stride walk",
-        "Dynamic Hip Sway / Dance Pose: lively mid-movement dance posture with expressive shoulders",
-        # Reclining / low
-        "Reclining / Lying Back: reclining comfortably on back or side with relaxed limbs",
+        "Dynamic Dance Movement: lively mid-movement dance posture with expressive shoulders",
+        # Low
         "Low Crouching / Kneeling: low crouched or kneeling dynamic posture",
     ]),
     ("surface_prop", "Surface / Furniture / Prop", "surface_prop", [
         "None / Custom",
         # Furniture
-        "On Bed / Soft Pillows: positioned on an unmade bed with soft rumpled pillows",
         "On Plush Living Room Couch: positioned on a soft modern fabric sofa",
         "In Ergonomic Gaming / Desk Chair: positioned in an ergonomic chair next to a computer desk",
         # Architecture
@@ -413,16 +400,17 @@ SCENE_ATTIRE_FIELDS = [
     ]),
 ]
 
-MOTION_FIELDS = list(addons.REGISTRY.video_motion_fields or [])
+MOTION_FIELDS: list[tuple[str, str, str, list[str]]] = []
 
-if addons.REGISTRY.extend_catalog:
-    addons.REGISTRY.extend_catalog(THEME_FIELDS, PERSON_FIELDS, SCENE_ATTIRE_FIELDS, MOTION_FIELDS)
+_extend_catalog = addons.REGISTRY.catalog.get("extend_catalog")
+if _extend_catalog:
+    _extend_catalog(THEME_FIELDS, PERSON_FIELDS, SCENE_ATTIRE_FIELDS, MOTION_FIELDS)
 
 ALL_GROUPS = [
     ("1. Theme, Style & Camera", THEME_FIELDS),
     ("2. Person Characteristics", PERSON_FIELDS),
     ("3. Attire, Pose, Props & Location", SCENE_ATTIRE_FIELDS),
-    *([("4. Video Motion & Camera Action (For Video Tab)", MOTION_FIELDS)] if MOTION_FIELDS else []),
+    *([("4. Extra Action & Motion", MOTION_FIELDS)] if MOTION_FIELDS else []),
 ]
 ALL_FIELDS = THEME_FIELDS + PERSON_FIELDS + SCENE_ATTIRE_FIELDS + MOTION_FIELDS
 FIELD_BY_KEY = {f[0]: f for f in ALL_FIELDS}
@@ -445,7 +433,7 @@ def extract_clause(raw_value: str) -> str:
 
 def assemble_builder_prompt(values: dict[str, str], include_motion: bool = True, extra_notes: str = "") -> str:
     """Assemble selected dropdown values into one conflict-rectified comma-separated prompt."""
-    from wan_rectifier import rectify_builder_fields
+    from studio_rectifier import rectify_builder_fields
 
     extras = [("extra_notes", extra_notes.strip())] if (extra_notes or "").strip() else None
     rectified, _ = rectify_builder_fields(values, extra_clauses=extras, include_motion=include_motion)
@@ -453,7 +441,7 @@ def assemble_builder_prompt(values: dict[str, str], include_motion: bool = True,
 
 
 def assemble_motion_only(values: dict[str, str], extra_notes: str = "") -> str:
-    """Assemble only Video Motion / Expression / Camera Movement / Physics clauses."""
+    """Assemble only extra action/motion clauses when enabled by an extension."""
     clauses = [extract_clause(values.get(k, "")) for k, _, _, _ in MOTION_FIELDS]
     clauses = [c for c in clauses if c]
     if (extra_notes or "").strip():

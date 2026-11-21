@@ -47,7 +47,7 @@ class Settings:
 def load_settings() -> Settings:
     env_path = Path(os.environ.get("GS_WEB_ENV_FILE", str(ENV_FILE)))
     env = {**_load_env_file(env_path), **os.environ}
-    priv = addons.REGISTRY.private_web_defaults
+    priv = addons.REGISTRY.web.get("defaults", {})
     hosts = env.get("GS_WEB_ALLOWED_HOSTS", priv.get("allowed_hosts", "127.0.0.1:8040,localhost:8040"))
     cache = ROOT_DIR / ".cache"
     return Settings(
