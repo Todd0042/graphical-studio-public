@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Graphical Studio</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/static/app.css?v=__V__">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Graphical Studio</h1>
+    <div class="seg mode-switch" role="group" aria-label="Mode">
+      <button type="button" class="seg-btn active" data-mode="generate">Generate</button>
+      <button type="button" class="seg-btn" data-mode="compose">Compose</button>
+    </div>
+    <span id="gpu-pill" class="pill" hidden></span>
+    <form method="post" action="/logout" class="logout"><button type="submit" class="ghost">Sign out</button></form>
+  </header>
+
+  <main class="layout">
+    <section class="panel create">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="photo" role="tab">Photo</button>
+        <button class="tab" data-tab="video" role="tab" data-video-only hidden>Video</button>
+        <button class="tab" data-tab="builder" role="tab">Prompt Builder</button>
+      </nav>
+
+      <form id="photo-form" class="tabpane" data-pane="photo">
+        <label>Prompt <textarea name="prompt" rows="5" maxlength="4000" required></textarea></label>
+        <label>Negative prompt <span id="photo-neg-help" class="help">Things to keep out of the picture (blur, extra fingers, text…).</span>
+          <textarea name="negative" rows="2" maxlength="2000"></textarea></label>
+        <div class="grid2">
+          <label>Model <span id="photo-model-help" class="help">Which image AI draws it (FLUX or Qwen-Image).</span>
+            <select name="model"></select></label>
+          <label>Size <span class="help">Picture shape. Portrait for characters, 16:9 for scenes, square for icons.</span>
+            <select name="preset" data-size-preset></select></label>
+        </div>
+        <div class="attach" data-attach="ref_upload" hidden>
+          <img alt="">
+          <div><strong>Reference image</strong><span class="help" data-attach-label></span></div>
+          <button type="button" class="ghost" data-clear="ref_upload" title="Remove reference">×</button>
+        </div>
+        <details class="advanced">
+          <summary>Advanced settings <span class="help">(the builder fills these in for you)</span></summary>
+          <div class="grid2">
+            <label>Width <input name="width" type="number" min="512" max="1536" step="8" value="1280"></label>
+            <label>Height <input name="height" type="number" min="512" max="1536" step="8" value="720"></label>
+            <label>Steps <span class="help">Refinement passes. More = cleaner but slower.</span>
+              <input name="steps" type="number" min="1" max="60" value="4"></label>
+            <label>CFG <span class="help">How strictly it follows the prompt (1.0 for guidance-distilled FLUX).</span>
+              <input name="cfg" type="number" min="1" max="15" step="0.5" value="1.0"></label>
+            <label>Sampler <span class="help">The maths behind each pass; changes the look subtly.</span>
+              <select name="sampler"></select></label>
+            <label>Scheduler <span class="help">How the passes are spaced; pairs with the sampler.</span>
+              <select name="scheduler"></select></label>
+            <label data-photo-lora-only>LoRA <span class="help">Add-on that teaches a specific character or style (optional).</span>
+              <select name="lora"><option value="">None</option></select></label>
+            <label data-photo-lora-only>LoRA strength <span class="help">How strongly the add-on applies.</span>
+              <input name="lora_strength" type="number" min="0" max="1.5" step="0.05" value="0.85"></label>
+            <label data-photo-ref-only>Reference mode <span class="help">Person keeps the face; Background keeps the room.</span>
+              <select name="ref_mode"></select></label>
+            <label data-photo-ref-only>Reference strength <span class="help">0.75 keeps it recognizable without copying the pose.</span>
+              <input name="ref_weight" type="number" min="0.1" max="1.2" step="0.05" value="0.75"></label>
+          </div>
+          <label class="file" data-photo-ref-only>Upload your own reference image <input type="file" accept="image/png,image/jpeg,image/webp" data-upload="ref_upload"></label>
+          <div class="grid2">
+            <label>Seed <span class="help">Starting point. Same seed + settings = same picture.</span>
+              <input name="seed" type="number" min="0" value="42026"></label>
+            <label>Output name (optional) <input name="output_name" maxlength="80"></label>
+          </div>
+          <div class="checks">
+            <label><input type="checkbox" name="random_seed" checked> Random seed</label>
+            <label><input type="checkbox" name="vary_person"> Auto person variety <span class="help">(new face each time)</span></label>
+          </div>
+        </details>
+        <button type="submit" class="primary">Queue photo</button>
+        <p class="form-msg" aria-live="polite"></p>
+      </form>
+
+      <form id="video-form" class="tabpane" data-pane="video" data-video-only hidden>
+        <label>Prompt <textarea name="prompt" rows="5" maxlength="4000" required></textarea></label>
+        <label>Negative prompt <span class="help">Things to keep out of the clip.</span>
+          <textarea name="negative" rows="2" maxlength="2000"></textarea></label>
+        <div class="grid2">
+          <label><span id="video-model-label">Video model</span> <span id="video-model-help" class="help"></span>
+            <select name="version"></select></label>
+          <label>Preset <select name="preset" data-video-preset></select></label>
+        </div>
+        <div class="attach" data-attach="start_upload" hidden>
+          <img alt="">
+          <div><strong>Start image</strong><span class="help" data-attach-label></span></div>
+          <button type="button" class="ghost" data-clear="start_upload" title="Remove start image">×</button>
+        </div>
+        <details class="advanced">
+          <summary>Advanced settings <span class="help">(the builder fills these in for you)</span></summary>
+          <div class="grid2">
+            <label>Width <input name="width" type="number" min="256" max="1280" step="16" value="768"></label>
+            <label>Height <input name="height" type="number" min="256" max="1280" step="16" value="432"></label>
+            <label>Duration (s) <span class="help">Longer clips take much longer to make.</span>
+              <input name="duration" type="number" min="0" max="6" step="0.25" value="4"></label>
+            <label>FPS <span id="video-fps-help" class="help">Frames per second.</span>
+              <input name="fps" type="number" min="8" max="24" value="16"></label>
+            <label>Steps <span id="video-steps-help" class="help">Refinement passes.</span>
+              <input name="steps" type="number" min="2" max="40" value="20"></label>
+            <label>CFG <input name="cfg" type="number" min="1" max="10" step="0.5" value="5"></label>
+            <label>Sampler <select name="sampler"></select></label>
+            <label>Scheduler <select name="scheduler"></select></label>
+          </div>
+          <label class="file">Upload your own start image <input type="file" accept="image/png,image/jpeg,image/webp" data-upload="start_upload"></label>
+          <div class="grid2">
+            <label>Seed <input name="seed" type="number" min="0" value="42026"></label>
+            <label>Output name (optional) <input name="output_name" maxlength="80"></label>
+          </div>
+          <div class="checks"><label><input type="checkbox" name="random_seed" checked> Random seed</label></div>
+        </details>
+        <button type="submit" class="primary">Queue video</button>
+        <p class="form-msg" aria-live="polite"></p>
+      </form>
+
+      <div id="builder" class="tabpane" data-pane="builder" hidden>
+        <div class="row builder-top">
+          <div class="seg" id="builder-target" role="group" aria-label="Building for" data-video-only hidden>
+            <button type="button" class="seg-btn active" data-target="photo">Photo</button>
+            <button type="button" class="seg-btn" data-target="video">Video</button>
+          </div>
+          <label class="inline"><span id="llm-label-text">Prompt LLM</span> <span id="llm-help" class="help">Which local instruct model reconciles and fills. Red = slow on this card.</span>
+            <select id="llm-select"></select></label>
+        </div>
+        <label>Your vision <span id="vision-help" class="help">Describe what the picture should be. The LLM checks your dropdown choices against this and fixes anything that conflicts.</span>
+          <textarea id="vision" rows="3" maxlength="2000"></textarea></label>
+        <div class="row">
+          <button type="button" id="fill-btn">Fill dropdowns from my vision</button>
+          <label class="check"><input type="checkbox" id="fill-replace"> Replace my picks too</label>
+        </div>
+        <div class="row">
+          <select id="template-select"><option value="">Templates…</option></select>
+          <button type="button" id="template-load" class="ghost">Load</button>
+          <button type="button" id="template-save" class="ghost">Save as…</button>
+          <button type="button" id="template-delete" class="ghost danger">Delete</button>
+        </div>
+        <div class="presets">
+          <span class="help">Presets set only the dropdowns that belong together for a look; everything else stays as you left it.</span>
+          <div id="preset-buttons" class="row"></div>
+        </div>
+        <div id="builder-fields"></div>
+
+        <label>Preview <span id="preview-help" class="help">What your dropdowns and vision make right now (before the LLM).</span>
+          <textarea id="builder-preview" rows="3" readonly></textarea></label>
+        <p id="preview-notes" class="help"></p>
+        <button type="button" class="primary" id="reconcile-btn">Reconcile prompt</button>
+
+        <div id="final-box" hidden>
+          <p id="final-stale" class="stale" hidden>Your dropdowns or vision changed since this was reconciled. Reconcile again (replaces your edits) or send it as is.</p>
+          <label>Final prompt <span id="final-help" class="help">Reconciled prompt. Edit it freely; this exact text is what gets sent.</span>
+            <textarea id="final-prompt" rows="5" maxlength="4000"></textarea></label>
+          <p id="final-notes" class="help"></p>
+          <p id="final-settings" class="help"></p>
+          <button type="button" class="primary" id="send-btn">Send to Photo</button>
+        </div>
+        <p id="builder-msg" class="form-msg" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="panel compose" id="compose" hidden>
+      <div class="compose-bar">
+        <label>Canvas <select id="cmp-size"></select></label>
+        <label>Background <select id="cmp-bg-type"></select></label>
+        <span id="cmp-colors" class="cmp-colors">
+          <label>Color 1 <input type="hidden" id="cmp-c1" value="#000000"></label>
+          <label>Color 2 <input type="hidden" id="cmp-c2" value="#1a1a1a"></label>
+          <span id="cmp-swatches" class="swatches" title="Quick colors"></span>
+        </span>
+        <label id="cmp-start-wrap" title="Color 1 stays solid up to this point, then fades into Color 2">Gradient start <span class="help" id="cmp-start-num">0%</span>
+          <input type="range" id="cmp-start" min="0" max="95" value="0"></label>
+        <label id="cmp-angle-wrap">Angle <input type="range" id="cmp-angle" min="0" max="360" value="90"></label>
+        <label id="cmp-density-wrap">Density <input type="range" id="cmp-density" min="2" max="60" value="12"></label>
+        <label>Vignette <input type="range" id="cmp-vignette" min="0" max="1" step="0.05" value="0"></label>
+        <span id="cmp-bg-photo-note" class="help" hidden>Pick a gallery photo and press “Use as background”.</span>
+      </div>
+      <div class="compose-main">
+        <div id="cmp-stage" class="cmp-stage">
+          <canvas id="cmp-canvas" width="1920" height="1080"></canvas>
+          <p class="help cmp-hint">Drop pictures here (or drag a gallery tile in). Drag to move · drag a corner, pinch or scroll to resize · snaps to the middle and thirds (hold Alt to place freely) · arrows nudge · Delete removes · Ctrl+Z undoes.</p>
+        </div>
+        <aside class="cmp-side">
+          <label class="check"><input type="checkbox" id="cmp-auto-cut" checked> Remove the background when adding</label>
+          <label>Cutout model
+            <select id="cmp-model">
+              <option value="general">Best all-round (BiRefNet)</option>
+              <option value="anime">Anime / illustrated characters</option>
+              <option value="portrait">People photos (BiRefNet portrait)</option>
+            </select></label>
+          <label class="file">Add pictures <input type="file" id="cmp-file" accept="image/png,image/jpeg,image/webp" multiple></label>
+          <fieldset id="cmp-fade" class="cmp-fade" disabled>
+            <legend>Fade edge <span class="help">(selected layer)</span></legend>
+            <label class="check"><input type="checkbox" id="cmp-fade-on"> Fade this layer out toward one side</label>
+            <span class="help">Hides the hard line where the subject was cut off in the original picture. 100% visible at the first line, gone at the second.</span>
+            <label>Angle <span class="help" id="cmp-fade-angle-num">90°</span>
+              <input type="range" id="cmp-fade-angle" min="0" max="360" value="90"></label>
+            <label>Fade starts at <span class="help" id="cmp-fade-start-num">70%</span>
+              <input type="range" id="cmp-fade-start" min="0" max="100" value="70"></label>
+            <label>Fully gone at <span class="help" id="cmp-fade-end-num">100%</span>
+              <input type="range" id="cmp-fade-end" min="0" max="100" value="100"></label>
+          </fieldset>
+          <h3>Layers <span class="help">(top first)</span></h3>
+          <ol id="cmp-layers" class="cmp-layers"></ol>
+          <div class="row">
+            <button type="button" id="cmp-undo" class="ghost">Undo</button>
+            <button type="button" id="cmp-clear" class="ghost danger">Clear</button>
+          </div>
+          <button type="button" id="cmp-save" class="primary">Flatten &amp; Save</button>
+          <button type="button" id="cmp-download" class="ghost">Download PNG</button>
+          <p id="cmp-msg" class="form-msg" aria-live="polite"></p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="panel queue">
+      <h2>Queue</h2>
+      <div id="jobs"></div>
+    </section>
+
+    <section class="panel gallery">
+      <div class="gallery-head">
+        <h2>Gallery</h2>
+        <div class="seg" data-video-only hidden>
+          <button class="seg-btn active" data-kind="photo">Photos</button>
+          <button class="seg-btn" data-kind="video">Videos</button>
+        </div>
+      </div>
+      <div id="media-actions" class="action-bar" hidden>
+        <span class="sel-name"></span>
+        <div class="row">
+          <button type="button" data-act="view">View</button>
+          <button type="button" data-act="compose-layer" data-compose-only hidden>Add to canvas</button>
+          <button type="button" data-act="compose-bg" data-compose-only hidden>Use as background</button>
+          <button type="button" data-act="import" data-recipe-only>Import into Prompt Builder</button>
+          <button type="button" data-act="photo-ref" data-photo-only data-photo-ref-only>Send to photo reference</button>
+          <button type="button" data-act="video-ref" data-photo-only data-video-only hidden>Send to video reference</button>
+          <button type="button" data-act="twin" data-photo-only hidden></button>
+          <a class="button ghost" data-act="download">Download</a>
+          <button type="button" data-act="delete" class="ghost danger">Delete</button>
+        </div>
+      </div>
+      <div id="gallery-grid" class="grid-media"></div>
+    </section>
+  </main>
+
+  <dialog id="viewer">
+    <div class="viewer-body"></div>
+    <div class="row viewer-actions">
+      <button type="button" data-act="import" data-recipe-only>Import into Prompt Builder</button>
+      <button type="button" data-act="photo-ref" data-photo-only data-photo-ref-only>Send to photo reference</button>
+      <button type="button" data-act="video-ref" data-photo-only data-video-only hidden>Send to video reference</button>
+      <button type="button" data-act="pair" data-photo-only hidden></button>
+      <a class="button" data-act="download">Download</a>
+      <button type="button" data-act="delete" class="ghost danger">Delete</button>
+      <button type="button" id="viewer-close" class="ghost">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="log-dialog">
+    <h3 id="log-title"></h3>
+    <p id="log-prompt" class="muted"></p>
+    <pre id="log-body"></pre>
+    <div class="row"><button type="button" id="log-close" class="ghost">Close</button></div>
+  </dialog>
+
+  <script src="/static/app.js?v=__V__"></script>
+  <script src="/static/colorpicker.js?v=__V__"></script>
+  <script src="/static/compose.js?v=__V__"></script>
+</body>
+</html>

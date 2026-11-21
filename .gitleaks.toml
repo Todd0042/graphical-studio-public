@@ -1,0 +1,3 @@
+# gitleaks settings (picked up when scanning this folder): the default rules.
+[extend]
+useDefault = true

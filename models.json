@@ -1,0 +1,120 @@
+{
+  "_about": "Every model Graphical Studio uses (SFW core edition). Other computers run `start_graphical_studio.sh --llm-sync` / `--model-sync` after a git pull. Digests pin the exact LLM build (`--llm-pin` refreshes them).",
+  "llms": {
+    "instruct": [
+      {
+        "name": "llama3.1:8b",
+        "label": "Llama 3.1 8B (Instruct)",
+        "default": true,
+        "size_gb": 4.9,
+        "note": "Meta Llama 3.1 8B Instruct; fits fully in 8 GB"
+      },
+      {
+        "name": "gemma3:4b",
+        "label": "Gemma 3 4B (Instruct)",
+        "size_gb": 3.3,
+        "note": "Google Gemma 3 4B Instruct; fast and lightweight"
+      },
+      {
+        "name": "qwen3:8b",
+        "label": "Qwen 3 8B (Instruct)",
+        "size_gb": 5.2,
+        "note": "Alibaba Qwen 3 8B Instruct; fits fully in 8 GB"
+      }
+    ],
+    "extras": [
+      {
+        "name": "qwen3:8b",
+        "size_gb": 5.2,
+        "note": "Asset Studio's first-choice LLM (brief expansion, prompts, repo reading)"
+      },
+      {
+        "name": "qwen2.5-coder:7b",
+        "size_gb": 4.7,
+        "note": "Asset Studio: first choice when 'Read the repo first' is on"
+      }
+    ],
+    "digests": {
+      "qwen3:8b": "500a1f067a9f"
+    }
+  },
+  "files": {
+    "_about": "ComfyUI model files: group -> list of {repo, file, dest} (dest is under ComfyUI/models).",
+    "assets": [
+      {
+        "repo": "city96/FLUX.1-dev-gguf",
+        "file": "flux1-dev-Q4_K_S.gguf",
+        "dest": "unet/flux1-dev-Q4_K_S.gguf"
+      },
+      {
+        "repo": "city96/FLUX.1-schnell-gguf",
+        "file": "flux1-schnell-Q4_K_S.gguf",
+        "dest": "unet/flux1-schnell-Q4_K_S.gguf"
+      },
+      {
+        "repo": "city96/t5-v1_1-xxl-encoder-gguf",
+        "file": "t5-v1_1-xxl-encoder-Q4_K_M.gguf",
+        "dest": "clip/t5-v1_1-xxl-encoder-Q4_K_M.gguf"
+      },
+      {
+        "repo": "comfyanonymous/flux_text_encoders",
+        "file": "clip_l.safetensors",
+        "dest": "clip/clip_l.safetensors"
+      },
+      {
+        "repo": "Comfy-Org/Lumina_Image_2.0_Repackaged",
+        "file": "split_files/vae/ae.safetensors",
+        "dest": "vae/ae.safetensors"
+      },
+      {
+        "repo": "unsloth/FLUX.2-klein-4B-GGUF",
+        "file": "flux-2-klein-4b-Q8_0.gguf",
+        "dest": "unet/flux-2-klein-4b-Q8_0.gguf"
+      },
+      {
+        "repo": "Comfy-Org/flux2-klein",
+        "file": "split_files/text_encoders/qwen_3_4b.safetensors",
+        "dest": "text_encoders/qwen_3_4b.safetensors"
+      },
+      {
+        "repo": "Comfy-Org/flux2-klein",
+        "file": "split_files/vae/flux2-vae.safetensors",
+        "dest": "vae/flux2-vae.safetensors"
+      },
+      {
+        "repo": "city96/Qwen-Image-gguf",
+        "file": "qwen-image-Q4_K_S.gguf",
+        "dest": "unet/qwen-image-Q4_K_S.gguf"
+      },
+      {
+        "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+        "file": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "dest": "text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+      },
+      {
+        "repo": "Comfy-Org/Qwen-Image_ComfyUI",
+        "file": "split_files/vae/qwen_image_vae.safetensors",
+        "dest": "vae/qwen_image_vae.safetensors"
+      },
+      {
+        "repo": "lightx2v/Qwen-Image-Lightning",
+        "file": "Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors",
+        "dest": "loras/Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors"
+      }
+    ]
+  },
+  "setup": {
+    "assets": {
+      "custom_nodes": [
+        {
+          "name": "ComfyUI-GGUF",
+          "git": "https://github.com/city96/ComfyUI-GGUF"
+        }
+      ],
+      "pip": [
+        "gguf>=0.13.0",
+        "rembg"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1 @@
+"""Graphical Studio web wrapper."""

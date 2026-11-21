@@ -1,0 +1,18 @@
+[Unit]
+Description=Graphical Studio Web Generator (:8040, login-gated)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/graphical-studio
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/path/to/graphical-studio/.venv-web/bin/uvicorn web.server:create_app --factory --host 127.0.0.1 --port 8040 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+# Main process first: it cancels running generators and releases the GPU lock; leftovers are killed after the timeout.
+KillMode=mixed
+TimeoutStopSec=30
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
