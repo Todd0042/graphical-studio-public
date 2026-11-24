@@ -8,7 +8,7 @@
 
 # 🎨 Graphical Studio
 
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-00f0ff.svg)](LICENSE)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-00f0ff.svg)](LICENSE)
 [![Content: SFW-Leaning Models](https://img.shields.io/badge/Content-Image%20Only%20%26%20SFW--Leaning-2ea44f.svg)](#models--safety-scope)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](#quick-start)
 [![Desktop: Python Tkinter](https://img.shields.io/badge/Desktop-Tkinter%20%2B%20ComfyUI-8a6cff.svg)](#1-desktop-app-studio_guipy)
