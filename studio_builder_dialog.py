@@ -16,6 +16,7 @@ from studio_prompt_catalog import (
     ascertain_fields_from_prompt,
 )
 from studio_dpi import fit_window_geometry, get_font, register_scale_listener, s
+from studio_scroll import flow_row, scrollable
 from studio_tooltips import attach_tooltip
 from studio_templates import auto_save_template, delete_template, get_template, load_templates, save_template
 
@@ -116,14 +117,20 @@ def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_pr
     win = tk.Toplevel(root)
     root._studio_builder_win = win
     win.title(addons.REGISTRY.desktop.get("builder_title") or "🛠 Graphical Studio — Full Scene & Person Builder")
-    fit_window_geometry(win, 1180, 960, 940, 720)
+    fit_window_geometry(win, 1180, 960, 560, 360)  # content scrolls, so it can be smaller than the form
     win.configure(bg=p["bg"])
+
+    # Action buttons stay pinned below; everything else scrolls on screens too small for the form.
+    footer = flow_row(win)  # wraps onto a second row on narrow screens instead of clipping buttons
+    footer.pack(side="bottom", fill="x", padx=10, pady=(6, 10))
+    body_outer, body = scrollable(win, bg=p["bg"])
+    body_outer.pack(fill="both", expand=True)
 
     vars_map: dict[str, tk.StringVar] = {}
     v_notes = tk.StringVar(value="")
 
     # ── Template bar (top) ──
-    tpl_bar = ttk.Frame(win, padding=(10, 10, 10, 0))
+    tpl_bar = ttk.Frame(body, padding=(10, 10, 10, 0))
     tpl_bar.pack(fill="x")
     lbl_tpl = ttk.Label(tpl_bar, text="Template:", font=get_font("small_bold"))
     lbl_tpl.pack(side="left", padx=(0, 6))
@@ -144,7 +151,7 @@ def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_pr
     # ── Presets ──
     from studio_presets import PRESETS
 
-    preset_bar = ttk.LabelFrame(win, text="Presets (set only their own dropdowns; the rest stay as you left them)", padding=(8, 4))
+    preset_bar = ttk.LabelFrame(body, text="Presets (set only their own dropdowns; the rest stay as you left them)", padding=(8, 4))
     preset_bar.pack(fill="x", padx=10, pady=(8, 0))
 
     def apply_preset_clicked(preset: dict):
@@ -162,7 +169,7 @@ def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_pr
     for c in range(5):
         preset_bar.columnconfigure(c, weight=1)
 
-    outer = ttk.Frame(win, padding=10)
+    outer = ttk.Frame(body, padding=10)
     outer.pack(fill="both", expand=True)
     outer.columnconfigure(0, weight=1)
     outer.columnconfigure(1, weight=1)
@@ -551,10 +558,7 @@ def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_pr
                 vars_map[key].set(val)
         refresh_preview()
 
-    btns = ttk.Frame(bottom)
-    btns.grid(row=10, column=0, columnspan=2, sticky="ew")
-    btn_send = ttk.Button(btns, text="🖼 Send to Photos Tab", style="Accent.TButton", command=send_final)
-    btn_send.pack(side="left", padx=(0, 6))
+    btn_send = ttk.Button(footer, text="🖼 Send to Photos Tab", style="Accent.TButton", command=send_final)
     attach_tooltip(btn_send, "Sends the Final prompt exactly as edited, with the auto-picked model and settings.")
     send_buttons = [btn_send, btn_fill, btn_reconcile]
 
@@ -570,10 +574,10 @@ def open_builder_window(root, extra_apply_targets, on_apply_photo, get_active_pr
         ("🧹 Clear All", clear_all, "TButton", "builder_clear"),
     )
     for label, fn, sty, tkey in extra_btns:
-        b = ttk.Button(btns, text=label, style=sty, command=fn)
-        b.pack(side="left", padx=(0, 6))
+        b = ttk.Button(footer, text=label, style=sty, command=fn)
         attach_tooltip(b, tkey)
-    ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
+    ttk.Button(footer, text="Close", command=win.destroy)
+    footer.reflow()
 
     def import_recipe(builder: dict, settings: dict, kind: str):
         """Import into Prompt Builder (desktop gallery): dropdowns, vision, target and Final prompt."""

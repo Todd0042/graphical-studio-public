@@ -23,6 +23,7 @@ import studio_library
 from studio_dpi import get_font, register_scale_listener, s
 import addons
 from studio_helpers import open_path_default, reveal_in_file_manager, start_streaming_process
+from studio_scroll import scrollable
 from studio_tooltips import attach_tooltip
 
 KIND_CHOICES = [("auto", "Auto-detect from brief")] + list(A.KIND_LABELS.items())
@@ -534,31 +535,8 @@ def build_assets_tab(parent, root):
     pane.columnconfigure(0, weight=3); pane.columnconfigure(1, weight=2); pane.rowconfigure(0, weight=1)
 
     # scrollable left column (the field grid + settings are tall)
-    left_outer = ttk.Frame(pane); left_outer.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-    left_outer.rowconfigure(0, weight=1); left_outer.columnconfigure(0, weight=1)
-    canvas = tk.Canvas(left_outer, highlightthickness=0, bg="#0d1324")
-    vsb = ttk.Scrollbar(left_outer, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=vsb.set)
-    canvas.grid(row=0, column=0, sticky="nsew"); vsb.grid(row=0, column=1, sticky="ns")
-    left = ttk.Frame(canvas)
-    win = canvas.create_window((0, 0), window=left, anchor="nw")
-    left.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
-
-    def _wheel(event):
-        w = event.widget
-        if isinstance(w, (tk.Text, ttk.Combobox)) or str(w).startswith(str(tree)):
-            return
-        canvas.yview_scroll(-1 if (event.num == 4 or getattr(event, "delta", 0) > 0) else 1, "units")
-
-    def _bind_wheel(_e=None):
-        canvas.bind_all("<Button-4>", _wheel); canvas.bind_all("<Button-5>", _wheel); canvas.bind_all("<MouseWheel>", _wheel)
-
-    def _unbind_wheel(_e=None):
-        for seq in ("<Button-4>", "<Button-5>", "<MouseWheel>"):
-            canvas.unbind_all(seq)
-
-    left_outer.bind("<Enter>", _bind_wheel); left_outer.bind("<Leave>", _unbind_wheel)
+    left_outer, left = scrollable(pane, bg="#0d1324")
+    left_outer.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
     left.columnconfigure(0, weight=1)
     text_kw = dict(wrap="word", bg="#0a0f1f", fg="#eef2fc", insertbackground="#44e0ff", relief="flat", padx=6, pady=5, font=get_font("ui"))
 

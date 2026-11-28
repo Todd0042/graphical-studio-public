@@ -124,7 +124,8 @@ See [deploy/graphical-studio-web.service.example](deploy/graphical-studio-web.se
 * [studio_gui.py](studio_gui.py): Main Tkinter notebook (**Photos & Images**, **Asset Studio**, **Themes & Menu**), DPI scaling (`studio_dpi.py`), and theme palette (`studio_themes.py`).
 * [studio_photo_tab.py](studio_photo_tab.py): Image generation controls (`FLUX.2 klein`, `FLUX.1 dev`, `FLUX.1 schnell`, `Qwen-Image`), Character Profiles (`studio_profiles.py`), and output gallery.
 * [studio_assets_tab.py](studio_assets_tab.py): Asset Studio front end with repo-scanning support, live field editor, analysis reasons, pixel-grid snapping, and multi-size icon export helpers.
-* [studio_builder_dialog.py](studio_builder_dialog.py): Full Scene & Person Prompt Builder window + quick-pick bar, template manager (`studio_templates.py`), live rectifier preview, and LLM reconcile/fill.
+* [studio_builder_dialog.py](studio_builder_dialog.py): Full Scene & Person Prompt Builder window + quick-pick bar, template manager (`studio_templates.py`), live rectifier preview, and LLM reconcile/fill. The form scrolls inside the window and its action buttons stay pinned below (wrapping onto a second row when narrow), so every dropdown stays reachable on small screens.
+* [studio_scroll.py](studio_scroll.py): Small-screen layout helpers shared by the Prompt Builder and Asset Studio: `scrollable()` (scrollbars that appear only when the content doesn't fit; mouse wheel scrolls the page, Shift+wheel sideways, without ever changing a dropdown's value) and `flow_row()` (a button row that wraps instead of clipping).
 
 ## 2. Web Generator (`web/`)
 
@@ -157,5 +158,12 @@ See [deploy/graphical-studio-web.service.example](deploy/graphical-studio-web.se
 .venv-web/bin/python tests/test_core.py
 ```
 
+* [tests/test_small_screen_e2e.py](tests/test_small_screen_e2e.py): Opens the real Prompt Builder (on a simulated 1024×600 screen, then 600×420 and full size) and Asset Studio and drives them like a user: every dropdown can be scrolled fully into view, wheel-scrolling over dropdowns never changes their values, and the pinned action buttons stay on screen. Needs a display (a window flashes briefly):
+
+```bash
+python3 tests/test_small_screen_e2e.py
+```
+
 * [SECURITY.md](SECURITY.md): Security architecture and private vulnerability reporting instructions.
 * [LICENSE](LICENSE): **PolyForm Noncommercial 1.0.0**.
+* **Media License**: the images, artwork and audio made for this project (paths listed in [LICENSE-MEDIA](LICENSE-MEDIA)) are © Todd0042 under **[CC BY-NC 4.0](LICENSE-MEDIA)**: free to share and adapt with credit for non-commercial purposes; commercial use requires permission.
